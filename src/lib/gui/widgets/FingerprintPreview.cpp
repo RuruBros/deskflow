@@ -26,7 +26,7 @@ FingerprintPreview::FingerprintPreview(
       fingerprint.type == QCryptographicHash::Sha256 ? sha256Layout(fingerprint, titleText, hashMode) : emptyLayout()
   );
   adjustSize();
-  setFixedSize(size());
+  setFixedSize(width() + 6, height());
 }
 
 void FingerprintPreview::toggleMode(bool hashMode)
