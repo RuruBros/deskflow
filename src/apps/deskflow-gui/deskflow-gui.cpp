@@ -10,6 +10,7 @@
 #include "common/ExitCodes.h"
 #include "common/I18N.h"
 #include "common/PlatformInfo.h"
+#include "common/Settings.h"
 #include "common/UrlConstants.h"
 #include "common/VersionInfo.h"
 #include "gui/Diagnostic.h"
@@ -19,13 +20,29 @@
 
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QLocalSocket>
 #include <QMessageBox>
 #include <QSharedMemory>
+#include <QTextStream>
 
 #if defined(Q_OS_MACOS)
 #include <Carbon/Carbon.h>
 #include <cstdlib>
+#endif
+
+#if defined(Q_OS_WIN)
+#include <Windows.h>
+#include <DbgHelp.h>
+
+#include <array>
+#include <cstdarg>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
 #endif
 
 #if defined(Q_OS_UNIX) && defined(QT_DEBUG)
@@ -43,6 +60,246 @@ bool checkMacAssistiveDevices();
 #endif
 
 const static auto kHeader = QStringLiteral("%1: %2\n").arg(kAppName, kDisplayVersion);
+
+namespace {
+
+constexpr auto kDiagnosticLogSizeLimit = 4 * 1024 * 1024;
+
+QString guiDiagnosticLogFilename()
+{
+  return QStringLiteral("%1/deskflow-gui-diagnostics.log").arg(Settings::UserDir);
+}
+
+void rotateDiagnosticLogIfNeeded(const QString &filename)
+{
+  const QFileInfo fileInfo(filename);
+  if (!fileInfo.exists() || fileInfo.size() <= kDiagnosticLogSizeLimit) {
+    return;
+  }
+
+  const auto oldFilename = QStringLiteral("%1.1").arg(filename);
+  QFile::remove(oldFilename);
+  QFile::rename(filename, oldFilename);
+}
+
+void appendGuiDiagnosticLine(const QString &line)
+{
+  QDir().mkpath(Settings::UserDir);
+
+  const auto filename = guiDiagnosticLogFilename();
+  rotateDiagnosticLogIfNeeded(filename);
+
+  QFile file(filename);
+  if (!file.open(QFile::WriteOnly | QFile::Append | QFile::Text)) {
+    return;
+  }
+
+  QTextStream(&file) << '[' << QDateTime::currentDateTime().toString(Qt::ISODateWithMs) << "] " << line << Qt::endl;
+}
+
+QString qtMessageTypeName(QtMsgType type)
+{
+  switch (type) {
+  case QtDebugMsg:
+    return QStringLiteral("DEBUG");
+  case QtInfoMsg:
+    return QStringLiteral("INFO");
+  case QtWarningMsg:
+    return QStringLiteral("WARNING");
+  case QtCriticalMsg:
+    return QStringLiteral("CRITICAL");
+  case QtFatalMsg:
+    return QStringLiteral("FATAL");
+  }
+
+  return QStringLiteral("UNKNOWN");
+}
+
+QString qtMessageFileLine(const QMessageLogContext &context)
+{
+  if (!context.file) {
+    return {};
+  }
+
+  return QStringLiteral("%1:%2").arg(context.file, QString::number(context.line));
+}
+
+void persistentMessageHandler(QtMsgType type, const QMessageLogContext &context, const QString &message)
+{
+  const auto fileLine = qtMessageFileLine(context);
+  auto line = QStringLiteral("%1: %2").arg(qtMessageTypeName(type), message);
+
+  if (!fileLine.isEmpty()) {
+    line.append(QStringLiteral("\n\t%1").arg(fileLine));
+  }
+
+  appendGuiDiagnosticLine(line);
+  deskflow::gui::messages::messageHandler(type, context, message);
+}
+
+#if defined(Q_OS_WIN)
+std::array<wchar_t, MAX_PATH> g_crashLogPath{};
+std::array<wchar_t, MAX_PATH> g_crashDumpPath{};
+
+void writeCrashLine(HANDLE file, const char *line)
+{
+  DWORD written = 0;
+  WriteFile(file, line, static_cast<DWORD>(strlen(line)), &written, nullptr);
+  WriteFile(file, "\r\n", 2, &written, nullptr);
+}
+
+void writeFormattedCrashLine(HANDLE file, const char *format, ...)
+{
+  std::array<char, 2048> buffer{};
+
+  va_list args;
+  va_start(args, format);
+  vsnprintf(buffer.data(), buffer.size(), format, args);
+  va_end(args);
+
+  writeCrashLine(file, buffer.data());
+}
+
+std::array<char, MAX_PATH> narrowPath(const wchar_t *path)
+{
+  std::array<char, MAX_PATH> result{};
+  WideCharToMultiByte(CP_UTF8, 0, path, -1, result.data(), static_cast<int>(result.size()), nullptr, nullptr);
+  return result;
+}
+
+void writeExceptionModule(HANDLE file, void *address)
+{
+  MEMORY_BASIC_INFORMATION memoryInfo{};
+  if (VirtualQuery(address, &memoryInfo, sizeof(memoryInfo)) == 0 || memoryInfo.AllocationBase == nullptr) {
+    writeFormattedCrashLine(file, "fault module: <unavailable>");
+    return;
+  }
+
+  std::array<wchar_t, MAX_PATH> modulePath{};
+  const auto moduleHandle = static_cast<HMODULE>(memoryInfo.AllocationBase);
+  if (GetModuleFileNameW(moduleHandle, modulePath.data(), static_cast<DWORD>(modulePath.size())) == 0) {
+    writeFormattedCrashLine(file, "fault module: <unavailable>");
+    return;
+  }
+
+  const auto modulePathUtf8 = narrowPath(modulePath.data());
+  const auto offset = reinterpret_cast<uintptr_t>(address) - reinterpret_cast<uintptr_t>(moduleHandle);
+  writeFormattedCrashLine(file, "fault module: %s", modulePathUtf8.data());
+  writeFormattedCrashLine(file, "fault module offset: 0x%p", reinterpret_cast<void *>(offset));
+}
+
+void writeExceptionContext(HANDLE file, CONTEXT *context)
+{
+  if (context == nullptr) {
+    return;
+  }
+
+#if defined(_M_X64)
+  writeFormattedCrashLine(file, "RIP: 0x%p", reinterpret_cast<void *>(context->Rip));
+  writeFormattedCrashLine(file, "RSP: 0x%p", reinterpret_cast<void *>(context->Rsp));
+  writeFormattedCrashLine(file, "RBP: 0x%p", reinterpret_cast<void *>(context->Rbp));
+  writeFormattedCrashLine(file, "RAX: 0x%p", reinterpret_cast<void *>(context->Rax));
+  writeFormattedCrashLine(file, "RBX: 0x%p", reinterpret_cast<void *>(context->Rbx));
+  writeFormattedCrashLine(file, "RCX: 0x%p", reinterpret_cast<void *>(context->Rcx));
+  writeFormattedCrashLine(file, "RDX: 0x%p", reinterpret_cast<void *>(context->Rdx));
+#elif defined(_M_IX86)
+  writeFormattedCrashLine(file, "EIP: 0x%p", reinterpret_cast<void *>(context->Eip));
+  writeFormattedCrashLine(file, "ESP: 0x%p", reinterpret_cast<void *>(context->Esp));
+  writeFormattedCrashLine(file, "EBP: 0x%p", reinterpret_cast<void *>(context->Ebp));
+  writeFormattedCrashLine(file, "EAX: 0x%p", reinterpret_cast<void *>(context->Eax));
+  writeFormattedCrashLine(file, "EBX: 0x%p", reinterpret_cast<void *>(context->Ebx));
+  writeFormattedCrashLine(file, "ECX: 0x%p", reinterpret_cast<void *>(context->Ecx));
+  writeFormattedCrashLine(file, "EDX: 0x%p", reinterpret_cast<void *>(context->Edx));
+#endif
+}
+
+void writeMinidump(HANDLE logFile, EXCEPTION_POINTERS *exceptionPointers)
+{
+  const auto dumpFile =
+      CreateFileW(g_crashDumpPath.data(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+
+  if (dumpFile == INVALID_HANDLE_VALUE) {
+    writeFormattedCrashLine(logFile, "minidump: failed to create file, error=%lu", GetLastError());
+    return;
+  }
+
+  MINIDUMP_EXCEPTION_INFORMATION exceptionInfo{};
+  exceptionInfo.ThreadId = GetCurrentThreadId();
+  exceptionInfo.ExceptionPointers = exceptionPointers;
+  exceptionInfo.ClientPointers = FALSE;
+
+  const auto dumpType =
+      static_cast<MINIDUMP_TYPE>(MiniDumpNormal | MiniDumpWithThreadInfo | MiniDumpWithUnloadedModules);
+  const auto ok = MiniDumpWriteDump(
+      GetCurrentProcess(), GetCurrentProcessId(), dumpFile, dumpType, &exceptionInfo, nullptr, nullptr
+  );
+
+  CloseHandle(dumpFile);
+
+  const auto dumpPathUtf8 = narrowPath(g_crashDumpPath.data());
+  writeFormattedCrashLine(logFile, "minidump: %s", ok ? "written" : "failed");
+  writeFormattedCrashLine(logFile, "minidump path: %s", dumpPathUtf8.data());
+  if (!ok) {
+    writeFormattedCrashLine(logFile, "minidump error: %lu", GetLastError());
+  }
+}
+
+LONG WINAPI writeWindowsCrashDiagnostics(EXCEPTION_POINTERS *exceptionPointers)
+{
+  const auto file = CreateFileW(
+      g_crashLogPath.data(), FILE_APPEND_DATA, FILE_SHARE_READ, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr
+  );
+
+  if (file == INVALID_HANDLE_VALUE) {
+    return EXCEPTION_CONTINUE_SEARCH;
+  }
+
+  SYSTEMTIME time{};
+  GetLocalTime(&time);
+
+  writeCrashLine(file, "----- Deskflow GUI crash -----");
+  writeFormattedCrashLine(
+      file, "time: %04hu-%02hu-%02huT%02hu:%02hu:%02hu.%03hu", time.wYear, time.wMonth, time.wDay, time.wHour,
+      time.wMinute, time.wSecond, time.wMilliseconds
+  );
+  writeFormattedCrashLine(file, "version: %s", kDisplayVersion);
+  writeFormattedCrashLine(file, "process id: %lu", GetCurrentProcessId());
+  writeFormattedCrashLine(file, "thread id: %lu", GetCurrentThreadId());
+
+  if (exceptionPointers != nullptr && exceptionPointers->ExceptionRecord != nullptr) {
+    const auto record = exceptionPointers->ExceptionRecord;
+    writeFormattedCrashLine(file, "exception code: 0x%08lx", record->ExceptionCode);
+    writeFormattedCrashLine(file, "exception flags: 0x%08lx", record->ExceptionFlags);
+    writeFormattedCrashLine(file, "exception address: 0x%p", record->ExceptionAddress);
+    writeExceptionModule(file, record->ExceptionAddress);
+  }
+
+  if (exceptionPointers != nullptr) {
+    writeExceptionContext(file, exceptionPointers->ContextRecord);
+    writeMinidump(file, exceptionPointers);
+  }
+
+  CloseHandle(file);
+  return EXCEPTION_CONTINUE_SEARCH;
+}
+
+void initializeWindowsCrashDiagnostics()
+{
+  QDir().mkpath(Settings::UserDir);
+
+  const auto timestamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss-zzz"));
+  const auto crashLogPath = QDir::toNativeSeparators(QStringLiteral("%1/deskflow-gui-crash.log").arg(Settings::UserDir));
+  const auto crashDumpPath =
+      QDir::toNativeSeparators(QStringLiteral("%1/deskflow-gui-%2.dmp").arg(Settings::UserDir, timestamp));
+
+  crashLogPath.toWCharArray(g_crashLogPath.data());
+  crashDumpPath.toWCharArray(g_crashDumpPath.data());
+
+  SetUnhandledExceptionFilter(writeWindowsCrashDiagnostics);
+}
+#endif
+
+} // namespace
 
 int main(int argc, char *argv[])
 {
@@ -62,6 +319,12 @@ int main(int argc, char *argv[])
   QGuiApplication::setDesktopFileName(kRevFqdnName);
 
   QApplication app(argc, argv);
+
+#if defined(Q_OS_WIN)
+  initializeWindowsCrashDiagnostics();
+#endif
+
+  appendGuiDiagnosticLine(QStringLiteral("GUI diagnostics initialized: %1 v%2").arg(kAppName, kDisplayVersion));
 
   // Ensure the I18N object is made before strings
   QTextStream(stdout) << "initial language: " << I18N::currentLanguage() << '\n';
@@ -125,7 +388,7 @@ int main(int argc, char *argv[])
   // Sets the fallback icon path and fallback theme
   updateIconTheme();
 
-  qInstallMessageHandler(deskflow::gui::messages::messageHandler);
+  qInstallMessageHandler(persistentMessageHandler);
   qInfo("%s v%s", kAppName, kDisplayVersion);
 
 #if defined(Q_OS_MACOS)
@@ -151,8 +414,11 @@ int main(int argc, char *argv[])
 
   MainWindow mainWindow;
   mainWindow.open();
+  appendGuiDiagnosticLine(QStringLiteral("main window opened"));
 
-  return QApplication::exec();
+  const auto exitCode = QApplication::exec();
+  appendGuiDiagnosticLine(QStringLiteral("GUI event loop exited with code %1").arg(exitCode));
+  return exitCode;
 }
 
 #if defined(Q_OS_MACOS)

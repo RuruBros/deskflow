@@ -58,6 +58,7 @@ install(
 
 if(WIN32)
   set_target_properties(${target} PROPERTIES LINK_FLAGS "/NODEFAULTLIB:LIBCMT")
+  target_link_libraries(${target} Dbghelp)
 
   install(RUNTIME_DEPENDENCY_SET guiDeps
     ${WIN32_RUNTIME_DEPENDENCY_SET_ARGS}
