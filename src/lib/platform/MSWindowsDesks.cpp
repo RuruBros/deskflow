@@ -413,8 +413,6 @@ void MSWindowsDesks::hideSystemCursor()
       32514, // OCR_WAIT
       32515, // OCR_CROSS
       32516, // OCR_UP
-      32640, // OCR_SIZE
-      32641, // OCR_ICON
       32642, // OCR_SIZENWSE
       32643, // OCR_SIZENESW
       32644, // OCR_SIZEWE
@@ -423,7 +421,6 @@ void MSWindowsDesks::hideSystemCursor()
       32648, // OCR_NO
       32649, // OCR_HAND
       32650, // OCR_APPSTARTING
-      32651, // OCR_HELP
   };
 
   for (const auto cursorId : cursorIds) {
