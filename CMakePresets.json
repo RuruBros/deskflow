@@ -1,0 +1,105 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "dev",
+      "displayName": "Development",
+      "inherits": "windows-debug-vcpkg"
+    },
+    {
+      "name": "windows-debug-vcpkg",
+      "displayName": "Windows Debug (vcpkg)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/windows-debug-vcpkg",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/deps/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "CMAKE_PREFIX_PATH": "${sourceDir}/deps/qt/6.7.3/msvc2019_64",
+        "Qt6_DIR": "${sourceDir}/deps/qt/6.7.3/msvc2019_64/lib/cmake/Qt6",
+        "VCPKG_QT": "OFF",
+        "VCPKG_TARGET_TRIPLET": "x64-windows"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "dev",
+      "displayName": "Build Deskflow development binaries",
+      "configurePreset": "dev",
+      "targets": [
+        "deskflow",
+        "deskflow-core",
+        "deskflow-daemon"
+      ]
+    },
+    {
+      "name": "gui",
+      "displayName": "Build Deskflow GUI for development",
+      "configurePreset": "dev",
+      "targets": [
+        "deskflow"
+      ]
+    },
+    {
+      "name": "core",
+      "displayName": "Build deskflow-core for development",
+      "configurePreset": "dev",
+      "targets": [
+        "deskflow-core"
+      ]
+    },
+    {
+      "name": "daemon",
+      "displayName": "Build deskflow-daemon for development",
+      "configurePreset": "dev",
+      "targets": [
+        "deskflow-daemon"
+      ]
+    },
+    {
+      "name": "platform",
+      "displayName": "Build platform library for development",
+      "configurePreset": "dev",
+      "targets": [
+        "platform"
+      ]
+    },
+    {
+      "name": "windows-debug-vcpkg",
+      "displayName": "Build Windows Debug (vcpkg)",
+      "configurePreset": "windows-debug-vcpkg"
+    },
+    {
+      "name": "windows-debug-vcpkg-core",
+      "displayName": "Build deskflow-core for Windows Debug (vcpkg)",
+      "configurePreset": "windows-debug-vcpkg",
+      "targets": [
+        "deskflow-core"
+      ]
+    },
+    {
+      "name": "windows-debug-vcpkg-gui",
+      "displayName": "Build Deskflow GUI for Windows Debug (vcpkg)",
+      "configurePreset": "windows-debug-vcpkg",
+      "targets": [
+        "deskflow"
+      ]
+    },
+    {
+      "name": "windows-debug-vcpkg-daemon",
+      "displayName": "Build deskflow-daemon for Windows Debug (vcpkg)",
+      "configurePreset": "windows-debug-vcpkg",
+      "targets": [
+        "deskflow-daemon"
+      ]
+    },
+    {
+      "name": "windows-debug-vcpkg-platform",
+      "displayName": "Build platform library for Windows Debug (vcpkg)",
+      "configurePreset": "windows-debug-vcpkg",
+      "targets": [
+        "platform"
+      ]
+    }
+  ]
+}

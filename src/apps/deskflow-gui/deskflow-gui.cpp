@@ -19,6 +19,7 @@
 #include "gui/StyleUtils.h"
 
 #include <QApplication>
+#include <QByteArray>
 #include <QCommandLineParser>
 #include <QDateTime>
 #include <QDir>
@@ -43,6 +44,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <string_view>
 #endif
 
 #if defined(Q_OS_UNIX) && defined(QT_DEBUG)
@@ -140,6 +142,32 @@ void persistentMessageHandler(QtMsgType type, const QMessageLogContext &context,
 #if defined(Q_OS_WIN)
 std::array<wchar_t, MAX_PATH> g_crashLogPath{};
 std::array<wchar_t, MAX_PATH> g_crashDumpPath{};
+
+bool hasPlatformArgument(int argc, char *argv[])
+{
+  for (int i = 1; i < argc; ++i) {
+    if (argv[i] == nullptr) {
+      continue;
+    }
+
+    const std::string_view arg{argv[i]};
+    if (arg == "-platform" || arg == "--platform" || arg.starts_with("-platform=") || arg.starts_with("--platform=")) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+void avoidWindowsDirectWriteFontEngineCrash(int argc, char *argv[])
+{
+  if (qEnvironmentVariableIsSet("QT_QPA_PLATFORM") || hasPlatformArgument(argc, argv)) {
+    return;
+  }
+
+  // DirectWrite can crash while handling legacy bitmap fonts such as Fixedsys.
+  qputenv("QT_QPA_PLATFORM", QByteArrayLiteral("windows:fontengine=freetype"));
+}
 
 void writeCrashLine(HANDLE file, const char *line)
 {
@@ -310,6 +338,10 @@ int main(int argc, char *argv[])
 
 #if !defined(Q_OS_MAC) && !defined(Q_OS_WIN)
   deskflow::platform::setAppId();
+#endif
+
+#if defined(Q_OS_WIN)
+  avoidWindowsDirectWriteFontEngineCrash(argc, argv);
 #endif
 
   QCoreApplication::setApplicationName(kAppName);

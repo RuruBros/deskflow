@@ -103,6 +103,9 @@ public:
   //! Restore Windows system cursors if they were replaced while off-screen.
   void restoreSystemCursor();
 
+  //! Restore Windows cursor images and visibility.
+  void restoreCursor();
+
   //! Update the key state
   /*!
   Causes the key state to get updated to reflect the physical keyboard
@@ -205,6 +208,7 @@ private:
   // message handlers
   void deskMouseMove(int32_t x, int32_t y) const;
   void deskMouseRelativeMove(int32_t dx, int32_t dy) const;
+  void deskRestoreCursor();
   void deskEnter(Desk *desk);
   void deskLeave(Desk *desk, HKL keyLayout);
   void deskThread(const void *vdesk);
@@ -245,6 +249,7 @@ private:
   // our resources
   ATOM m_deskClass;
   HCURSOR m_cursor;
+  Mutex m_cursorMutex;
   bool m_systemCursorHidden = false;
 
   // screen shape stuff

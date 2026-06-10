@@ -80,6 +80,8 @@
 #define DESKFLOW_MSG_FAKE_REL_MOVE DESKFLOW_HOOK_LAST_MSG + 11
 // enable; <unused>
 #define DESKFLOW_MSG_FAKE_INPUT DESKFLOW_HOOK_LAST_MSG + 12
+// <unused>; <unused>
+#define DESKFLOW_MSG_RESTORE_CURSOR DESKFLOW_HOOK_LAST_MSG + 13
 
 static void send_keyboard_input(WORD wVk, WORD wScan, DWORD dwFlags)
 {
@@ -105,6 +107,8 @@ static void send_mouse_input(DWORD dwFlags, DWORD dx, DWORD dy, DWORD dwData)
   inp.mi.dwExtraInfo = 0;
   SendInput(1, &inp, sizeof(inp));
 }
+
+void setCursorVisibility(bool visible);
 
 //
 // MSWindowsDesks
@@ -182,15 +186,24 @@ void MSWindowsDesks::leave(HKL keyLayout)
 
 void MSWindowsDesks::restoreSystemCursor()
 {
-  if (!m_systemCursorHidden) {
+  Lock cursorLock(&m_cursorMutex);
+
+  // Primary replaces Windows global cursors, so restore even if our local state is stale.
+  if (!m_isPrimary && !m_systemCursorHidden) {
     return;
   }
 
   if (!SystemParametersInfo(SPI_SETCURSORS, 0, nullptr, 0)) {
     LOG_WARN("failed to restore system cursors: %d", GetLastError());
+    return;
   }
 
   m_systemCursorHidden = false;
+}
+
+void MSWindowsDesks::restoreCursor()
+{
+  sendMessage(DESKFLOW_MSG_RESTORE_CURSOR, 0, 0);
 }
 
 void MSWindowsDesks::resetOptions()
@@ -403,9 +416,13 @@ void MSWindowsDesks::destroyWindow(HWND hwnd) const
 
 void MSWindowsDesks::hideSystemCursor()
 {
+  Lock cursorLock(&m_cursorMutex);
+
   if (m_systemCursorHidden) {
     return;
   }
+
+  m_systemCursorHidden = true;
 
   static constexpr DWORD cursorIds[] = {
       32512, // OCR_NORMAL
@@ -436,7 +453,6 @@ void MSWindowsDesks::hideSystemCursor()
     }
   }
 
-  m_systemCursorHidden = true;
 }
 
 LRESULT CALLBACK MSWindowsDesks::primaryDeskProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -520,6 +536,12 @@ void MSWindowsDesks::deskMouseRelativeMove(int32_t dx, int32_t dy) const
   }
 }
 
+void MSWindowsDesks::deskRestoreCursor()
+{
+  restoreSystemCursor();
+  setCursorVisibility(true);
+}
+
 /*!
  * Wraps the `ShowCursor` function and calls it repeatedly until the cursor visibility is at
  * the desired state. Windows maintains an internal counter for cursor visibility, and only
@@ -561,8 +583,7 @@ void MSWindowsDesks::deskEnter(Desk *desk)
     ReleaseCapture();
   }
 
-  restoreSystemCursor();
-  setCursorVisibility(true);
+  deskRestoreCursor();
 
   SetWindowPos(desk->m_window, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_HIDEWINDOW);
 
@@ -790,6 +811,10 @@ void MSWindowsDesks::deskThread(const void *vdesk)
       send_keyboard_input(
           DESKFLOW_HOOK_FAKE_INPUT_VIRTUAL_KEY, DESKFLOW_HOOK_FAKE_INPUT_SCANCODE, msg.wParam ? 0 : KEYEVENTF_KEYUP
       );
+      break;
+
+    case DESKFLOW_MSG_RESTORE_CURSOR:
+      deskRestoreCursor();
       break;
     }
 

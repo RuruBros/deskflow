@@ -236,6 +236,8 @@ void MSWindowsScreen::enter()
 {
   m_desks->enter();
   if (m_isPrimary) {
+    m_restoreCursorOnPrimaryMotion = true;
+
     // enable special key sequences on win95 family
     enableSpecialKeys(true);
 
@@ -1234,6 +1236,11 @@ bool MSWindowsScreen::onMouseMove(int32_t mx, int32_t my)
   saveMousePosition(mx, my);
 
   if (m_isOnScreen) {
+    if (m_isPrimary && m_restoreCursorOnPrimaryMotion) {
+      m_desks->restoreCursor();
+      m_restoreCursorOnPrimaryMotion = false;
+    }
+
     // motion on primary screen
     sendEvent(EventTypes::PrimaryScreenMotionOnPrimary, MotionInfo::alloc(m_xCursor, m_yCursor));
   } else {

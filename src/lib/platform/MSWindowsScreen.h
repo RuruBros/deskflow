@@ -256,6 +256,9 @@ private:
   // true if mouse has entered the screen
   bool m_isOnScreen;
 
+  // true when the first primary motion after re-entering should restore cursor visibility
+  bool m_restoreCursorOnPrimaryMotion = false;
+
   // true if the screen is enabled
   bool m_isEnabled = false;
 
