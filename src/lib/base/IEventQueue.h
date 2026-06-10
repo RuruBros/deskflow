@@ -67,8 +67,8 @@ public:
   Looks up the dispatcher for the event's target and invokes it.
   Returns true iff a dispatcher exists for the target.
 
-  The caller must ensure that the target of the event is not removed by removeHandler() or
-  removeHandlers().
+  The handler can remove itself while handling the current event. Handler changes made while
+  dispatching an event do not affect the handler already selected for that event.
   */
   virtual bool dispatchEvent(const Event &event) = 0;
 

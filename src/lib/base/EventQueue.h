@@ -50,7 +50,7 @@ public:
   void waitForReady() const override;
 
 private:
-  const EventHandler *getHandler(EventTypes type, void *target) const;
+  bool getHandler(EventTypes type, void *target, EventHandler &handler) const;
   uint32_t saveEvent(Event &&event);
   Event removeEvent(uint32_t eventID);
   bool hasTimerExpired(Event &event);
