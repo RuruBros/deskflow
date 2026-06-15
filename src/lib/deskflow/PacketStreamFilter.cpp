@@ -123,15 +123,17 @@ bool PacketStreamFilter::readPacketSize()
   return true;
 }
 
-bool PacketStreamFilter::readMore()
+bool PacketStreamFilter::readMore(bool &inputProgress)
 {
   // note if we have whole packet
   bool wasReady = isReadyNoLock();
+  inputProgress = false;
 
   // read more data
   char buffer[4096];
   uint32_t n = getStream()->read(buffer, sizeof(buffer));
   while (n > 0) {
+    inputProgress = true;
     m_buffer.write(buffer, n);
 
     // if we don't yet have the next packet size then get it, if possible.
@@ -155,8 +157,16 @@ bool PacketStreamFilter::readMore()
 void PacketStreamFilter::filterEvent(const Event &event)
 {
   if (event.getType() == EventTypes::StreamInputReady) {
-    std::scoped_lock lock{m_mutex};
-    if (!readMore()) {
+    bool inputProgress = false;
+    bool inputReady = false;
+    {
+      std::scoped_lock lock{m_mutex};
+      inputReady = readMore(inputProgress);
+    }
+    if (inputProgress) {
+      m_events->dispatchEvent(Event(EventTypes::StreamInputProgress, getEventTarget()));
+    }
+    if (!inputReady) {
       return;
     }
   } else if (event.getType() == EventTypes::StreamInputShutdown) {

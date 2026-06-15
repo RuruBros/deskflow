@@ -65,6 +65,9 @@ protected:
   virtual void addHeartbeatTimer();
   virtual void removeHeartbeatTimer();
   virtual bool recvClipboard();
+  virtual void handleInputProgress();
+  double heartbeatAlarm() const;
+  void setHeartbeatAlarm(double alarm);
 
 private:
   void disconnect();

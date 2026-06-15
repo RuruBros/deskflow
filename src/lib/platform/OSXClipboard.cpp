@@ -15,6 +15,13 @@
 #include "platform/OSXClipboardUTF16Converter.h"
 #include "platform/OSXClipboardUTF8Converter.h"
 
+namespace {
+CFStringRef deskflowOwnershipFlavor()
+{
+  return CFSTR("org.deskflow.clipboard-owner");
+}
+} // namespace
+
 //
 // OSXClipboard
 //
@@ -58,7 +65,45 @@ bool OSXClipboard::empty()
     return false;
   }
 
+  markOwnedByDeskflow();
   return true;
+}
+
+bool OSXClipboard::isOwnedByDeskflow()
+{
+  PasteboardRef pboard = nullptr;
+  if (PasteboardCreate(kPasteboardClipboard, &pboard) != noErr) {
+    return false;
+  }
+
+  PasteboardSynchronize(pboard);
+
+  PasteboardItemID item = nullptr;
+  const bool hasItem = PasteboardGetItemIdentifier(pboard, 1, &item) == noErr;
+  PasteboardFlavorFlags flags = 0;
+  const bool isOwned =
+      hasItem && PasteboardGetItemFlavorFlags(pboard, item, deskflowOwnershipFlavor(), &flags) == noErr;
+
+  CFRelease(pboard);
+  return isOwned;
+}
+
+void OSXClipboard::markOwnedByDeskflow() const
+{
+  const uint8_t marker = 1;
+  CFDataRef dataRef = CFDataCreate(kCFAllocatorDefault, &marker, sizeof(marker));
+  if (dataRef == nullptr) {
+    LOG_WARN("failed to create Deskflow clipboard ownership marker");
+    return;
+  }
+
+  PasteboardItemID itemID = 0;
+  OSStatus err = PasteboardPutItemFlavor(m_pboard, itemID, deskflowOwnershipFlavor(), dataRef, kPasteboardFlavorNoFlags);
+  CFRelease(dataRef);
+
+  if (err != noErr) {
+    LOG_WARN("failed to mark clipboard as Deskflow-owned: error %i", err);
+  }
 }
 
 bool OSXClipboard::synchronize()

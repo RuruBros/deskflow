@@ -819,6 +819,11 @@ void OSXScreen::checkClipboards()
 {
   LOG_VERBOSE("checking clipboard");
   if (m_pasteboard.synchronize()) {
+    if (OSXClipboard::isOwnedByDeskflow()) {
+      LOG_DEBUG("ignored Deskflow-owned clipboard change");
+      return;
+    }
+
     LOG_DEBUG("clipboard changed");
     sendClipboardEvent(EventTypes::ClipboardGrabbed, kClipboardClipboard);
     sendClipboardEvent(EventTypes::ClipboardGrabbed, kClipboardSelection);

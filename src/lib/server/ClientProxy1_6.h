@@ -22,5 +22,11 @@ public:
   bool recvClipboard() override;
 
 private:
+  void extendHeartbeatForClipboardTransfer();
+  void restoreHeartbeatAfterClipboardTransfer();
+
+private:
   IEventQueue *m_events;
+  bool m_clipboardTransferHeartbeatExtended = false;
+  double m_savedHeartbeatAlarm = 0.0;
 };

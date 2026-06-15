@@ -11,7 +11,7 @@
 #include "base/Log.h"
 #include "deskflow/ClipboardChunk.h"
 
-static const size_t g_chunkSize = 512 * 1024; // 512kb
+static const size_t g_chunkSize = 16 * 1024; // 16 KiB
 
 void StreamChunker::sendClipboard(
     const std::string_view &data, size_t size, ClipboardID id, uint32_t sequence, IEventQueue *events, void *eventTarget

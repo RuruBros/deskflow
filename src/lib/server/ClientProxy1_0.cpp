@@ -26,6 +26,9 @@ ClientProxy1_0::ClientProxy1_0(const std::string &name, deskflow::IStream *strea
 {
   // install event handlers
   m_events->addHandler(EventTypes::StreamInputReady, stream->getEventTarget(), [this](const auto &) { handleData(); });
+  m_events->addHandler(EventTypes::StreamInputProgress, stream->getEventTarget(), [this](const auto &) {
+    handleInputProgress();
+  });
   m_events->addHandler(EventTypes::StreamOutputError, stream->getEventTarget(), [this](const auto &) {
     handleWriteError();
   });
@@ -63,6 +66,7 @@ void ClientProxy1_0::removeHandlers()
   using enum EventTypes;
   // uninstall event handlers
   m_events->removeHandler(StreamInputReady, getStream()->getEventTarget());
+  m_events->removeHandler(StreamInputProgress, getStream()->getEventTarget());
   m_events->removeHandler(StreamOutputError, getStream()->getEventTarget());
   m_events->removeHandler(StreamInputShutdown, getStream()->getEventTarget());
   m_events->removeHandler(StreamOutputShutdown, getStream()->getEventTarget());
@@ -105,6 +109,19 @@ void ClientProxy1_0::setHeartbeatRate(double, double alarm)
   m_heartbeatAlarm = alarm;
 }
 
+double ClientProxy1_0::heartbeatAlarm() const
+{
+  return m_heartbeatAlarm;
+}
+
+void ClientProxy1_0::setHeartbeatAlarm(double alarm)
+{
+  m_heartbeatAlarm = alarm;
+  if (m_heartbeatTimer != nullptr) {
+    resetHeartbeatTimer();
+  }
+}
+
 void ClientProxy1_0::handleData()
 {
   // handle messages until there are no more.  first read message code.
@@ -143,6 +160,13 @@ void ClientProxy1_0::handleData()
 
   // restart heartbeat timer
   resetHeartbeatTimer();
+}
+
+void ClientProxy1_0::handleInputProgress()
+{
+  if (m_heartbeatTimer != nullptr) {
+    resetHeartbeatTimer();
+  }
 }
 
 bool ClientProxy1_0::parseHandshakeMessage(const uint8_t *code)

@@ -13,6 +13,10 @@
 #include "io/IStream.h"
 #include "server/Server.h"
 
+namespace {
+constexpr double kClipboardTransferHeartbeatAlarm = 60.0;
+}
+
 //
 // ClientProxy1_6
 //
@@ -43,6 +47,29 @@ void ClientProxy1_6::setClipboard(ClipboardID id, const IClipboard *clipboard)
   }
 }
 
+void ClientProxy1_6::extendHeartbeatForClipboardTransfer()
+{
+  const double currentAlarm = heartbeatAlarm();
+  if (currentAlarm <= 0.0 || currentAlarm >= kClipboardTransferHeartbeatAlarm) {
+    return;
+  }
+
+  m_savedHeartbeatAlarm = currentAlarm;
+  m_clipboardTransferHeartbeatExtended = true;
+  setHeartbeatAlarm(kClipboardTransferHeartbeatAlarm);
+}
+
+void ClientProxy1_6::restoreHeartbeatAfterClipboardTransfer()
+{
+  if (!m_clipboardTransferHeartbeatExtended) {
+    return;
+  }
+
+  setHeartbeatAlarm(m_savedHeartbeatAlarm);
+  m_savedHeartbeatAlarm = 0.0;
+  m_clipboardTransferHeartbeatExtended = false;
+}
+
 bool ClientProxy1_6::recvClipboard()
 {
   // parse message
@@ -50,10 +77,13 @@ bool ClientProxy1_6::recvClipboard()
   ClipboardID id;
   uint32_t seq;
 
-  if (auto r = ClipboardChunk::assemble(getStream(), dataCached, id, seq); r == TransferState::Started) {
+  auto r = ClipboardChunk::assemble(getStream(), dataCached, id, seq);
+  if (r == TransferState::Started) {
+    extendHeartbeatForClipboardTransfer();
     size_t size = ClipboardChunk::getExpectedSize();
     LOG_DEBUG("receiving clipboard %d size=%d", id, size);
   } else if (r == TransferState::Finished) {
+    restoreHeartbeatAfterClipboardTransfer();
     LOG(
         (CLOG_DEBUG "received client \"%s\" clipboard %d seqnum=%d, size=%d", getName().c_str(), id, seq,
          dataCached.size())
@@ -67,6 +97,8 @@ bool ClientProxy1_6::recvClipboard()
     info->m_id = id;
     info->m_sequenceNumber = seq;
     m_events->addEvent(Event(EventTypes::ClipboardChanged, getEventTarget(), info));
+  } else if (r == TransferState::Error) {
+    restoreHeartbeatAfterClipboardTransfer();
   }
 
   return true;

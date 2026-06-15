@@ -234,5 +234,8 @@ enum class EventTypes : uint32_t
 
   /// Stop libei
   EISessionClosed,
+
+  /// A filtered stream sends this event when input is progressing but a full message is not ready yet.
+  StreamInputProgress,
 };
 } // namespace deskflow

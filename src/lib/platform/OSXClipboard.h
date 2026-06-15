@@ -37,6 +37,7 @@ public:
   bool synchronize();
 
 private:
+  void markOwnedByDeskflow() const;
   void clearConverters();
 
 private:

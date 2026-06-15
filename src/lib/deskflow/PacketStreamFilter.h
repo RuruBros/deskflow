@@ -39,7 +39,7 @@ protected:
 private:
   bool isReadyNoLock() const;
   bool readPacketSize();
-  bool readMore();
+  bool readMore(bool &inputProgress);
 
 private:
   mutable std::mutex m_mutex;
