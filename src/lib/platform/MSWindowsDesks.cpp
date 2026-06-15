@@ -711,14 +711,17 @@ void MSWindowsDesks::deskThread(const void *vdesk)
         case kHOOK_FAILED:
           // we won't work on this desk
           desk->m_lowLevel = false;
+          LOG_WARN("low-level hooks are unavailable on desk \"%ls\"", desk->m_name.c_str());
           break;
 
         case kHOOK_OKAY:
           desk->m_lowLevel = false;
+          LOG_DEBUG("using message hooks on desk \"%ls\"", desk->m_name.c_str());
           break;
 
         case kHOOK_OKAY_LL:
           desk->m_lowLevel = true;
+          LOG_DEBUG("using low-level hooks on desk \"%ls\"", desk->m_name.c_str());
           break;
         }
 

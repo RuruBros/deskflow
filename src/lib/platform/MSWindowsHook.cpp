@@ -38,6 +38,20 @@ static DWORD g_hookThread = 0;
 static bool g_fakeServerInput = false;
 static BOOL g_isPrimary = TRUE;
 
+static const char *hookModeToString(EHookMode mode)
+{
+  switch (mode) {
+  case kHOOK_DISABLE:
+    return "disabled";
+  case kHOOK_WATCH_JUMP_ZONE:
+    return "watch jump zone";
+  case kHOOK_RELAY_EVENTS:
+    return "relay events";
+  }
+
+  return "unknown";
+}
+
 MSWindowsHook::~MSWindowsHook()
 {
   cleanup();
@@ -139,6 +153,7 @@ void MSWindowsHook::setMode(EHookMode mode)
     // no change
     return;
   }
+  LOG_DEBUG("windows hook mode changed from %s to %s", hookModeToString(g_mode), hookModeToString(mode));
   g_mode = mode;
 }
 
@@ -618,8 +633,10 @@ EHookResult MSWindowsHook::install()
 
   // install low-level hooks.  we require that they both get installed.
   g_mouseLL = SetWindowsHookEx(WH_MOUSE_LL, &mouseLLHook, nullptr, 0);
+  DWORD mouseHookError = (g_mouseLL == nullptr) ? GetLastError() : ERROR_SUCCESS;
 #if !NO_GRAB_KEYBOARD
   g_keyboardLL = SetWindowsHookEx(WH_KEYBOARD_LL, &keyboardLLHook, nullptr, 0);
+  DWORD keyboardHookError = (g_keyboardLL == nullptr) ? GetLastError() : ERROR_SUCCESS;
   if (g_mouseLL == nullptr || g_keyboardLL == nullptr) {
     if (g_keyboardLL != nullptr) {
       UnhookWindowsHookEx(g_keyboardLL);
@@ -639,12 +656,21 @@ EHookResult MSWindowsHook::install()
       (g_keyboardLL == nullptr)
 #endif
   ) {
+    if (g_mouseLL == nullptr) {
+      LOG_WARN("failed to install low-level mouse hook: %lu", mouseHookError);
+    }
+#if !NO_GRAB_KEYBOARD
+    if (g_keyboardLL == nullptr) {
+      LOG_WARN("failed to install low-level keyboard hook: %lu", keyboardHookError);
+    }
+#endif
     uninstall();
     return kHOOK_FAILED;
   }
   // clang-format on
   if (g_keyboardLL != nullptr || g_mouseLL != nullptr) {
     g_hookThread = GetCurrentThreadId();
+    LOG_DEBUG("installed low-level Windows hooks on thread %lu", g_hookThread);
     return kHOOK_OKAY_LL;
   }
 
