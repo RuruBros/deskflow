@@ -981,15 +981,16 @@ bool Server::isSwitchOkay(
 
   // note if the switch direction has changed.  save the new
   // direction and screen if so.
-  bool isNewDirection = (dir != m_switchDir);
-  if (isNewDirection || m_switchScreen == nullptr) {
+  const bool isNewDirection = (dir != m_switchDir);
+  const bool isNewTarget = (newScreen != m_switchScreen);
+  if (isNewDirection || isNewTarget) {
     m_switchDir = dir;
     m_switchScreen = newScreen;
   }
 
   // is this a double tap and do we care?
   if (!allowSwitch && m_switchTwoTapDelay > 0.0) {
-    if (isNewDirection || !isSwitchTwoTapStarted() || !shouldSwitchTwoTap()) {
+    if (isNewDirection || isNewTarget || !isSwitchTwoTapStarted() || !shouldSwitchTwoTap()) {
       // tapping a different or new edge or second tap not
       // fast enough.  prepare for second tap.
       preventSwitch = true;
@@ -1002,7 +1003,7 @@ bool Server::isSwitchOkay(
 
   // if waiting before a switch then prepare to switch later
   if (!allowSwitch && m_switchWaitDelay > 0.0) {
-    if (isNewDirection || !isSwitchWaitStarted()) {
+    if (isNewDirection || isNewTarget || !isSwitchWaitStarted()) {
       startSwitchWait(x, y);
     }
     preventSwitch = true;
@@ -1061,12 +1062,10 @@ void Server::noSwitch(int32_t x, int32_t y)
 
 void Server::stopSwitch()
 {
-  if (m_switchScreen != nullptr) {
-    m_switchScreen = nullptr;
-    m_switchDir = Direction::NoDirection;
-    stopSwitchTwoTap();
-    stopSwitchWait();
-  }
+  m_switchScreen = nullptr;
+  m_switchDir = Direction::NoDirection;
+  stopSwitchTwoTap();
+  stopSwitchWait();
 }
 
 void Server::startSwitchTwoTap()
@@ -1478,6 +1477,11 @@ void Server::handleWheelEvent(const Event &event)
 
 void Server::handleSwitchWaitTimeout()
 {
+  if (m_switchScreen == nullptr) {
+    stopSwitch();
+    return;
+  }
+
   // ignore if mouse is locked to screen
   if (isLockedToScreen()) {
     LOG_VERBOSE("locked to screen");
@@ -2043,7 +2047,7 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
           break;
 
         case Bottom:
-          clearWait = (m_y <= ay + ah - 1 + zoneSize);
+          clearWait = (m_y <= ay + ah - 1 - zoneSize);
           break;
 
         default:
@@ -2252,14 +2256,13 @@ void Server::removeOldClient(BaseClientProxy *client)
 
 void Server::forceLeaveClient(const BaseClientProxy *client)
 {
+  if (client == m_switchScreen) {
+    stopSwitch();
+  }
+
   if (const auto *active = (m_activeSaver != nullptr) ? m_activeSaver : m_active; active == client) {
     // record new position (center of primary screen)
     m_primaryClient->getCursorCenter(m_x, m_y);
-
-    // stop waiting to switch to this client
-    if (active == m_switchScreen) {
-      stopSwitch();
-    }
 
     // don't notify active screen since it has probably already
     // disconnected.

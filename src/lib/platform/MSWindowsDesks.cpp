@@ -159,7 +159,7 @@ void MSWindowsDesks::enable()
 
 void MSWindowsDesks::disable()
 {
-  restoreSystemCursor();
+  restoreCursor();
 
   // remove timer
   if (m_timer != nullptr) {
@@ -203,7 +203,12 @@ void MSWindowsDesks::restoreSystemCursor()
 
 void MSWindowsDesks::restoreCursor()
 {
-  sendMessage(DESKFLOW_MSG_RESTORE_CURSOR, 0, 0);
+  if (m_activeDesk != nullptr && m_activeDesk->m_window != nullptr) {
+    sendMessage(DESKFLOW_MSG_RESTORE_CURSOR, 0, 0);
+    return;
+  }
+
+  deskRestoreCursor();
 }
 
 void MSWindowsDesks::resetOptions()
@@ -585,7 +590,7 @@ void MSWindowsDesks::deskEnter(Desk *desk)
 
   deskRestoreCursor();
 
-  SetWindowPos(desk->m_window, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_HIDEWINDOW);
+  SetWindowPos(desk->m_window, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_HIDEWINDOW);
 
   if (desk->m_foregroundWindow != nullptr) {
     // restore the foreground window
@@ -606,32 +611,10 @@ void MSWindowsDesks::deskEnter(Desk *desk)
 
 void MSWindowsDesks::deskLeave(Desk *desk, HKL keyLayout)
 {
-  setCursorVisibility(false);
-
   if (m_isPrimary) {
-    hideSystemCursor();
-
-    // map a window to hide the cursor and to use whatever keyboard
-    // layout we choose rather than the keyboard layout of the last
-    // active window.
-    int x, y, w, h;
-    if (desk->m_lowLevel) {
-      // with a low level hook the cursor will never budge so
-      // just a 1x1 window is sufficient.
-      x = m_xCenter;
-      y = m_yCenter;
-      w = 1;
-      h = 1;
-    } else {
-      // with regular hooks the cursor will jitter as it's moved
-      // by the user then back to the center by us.  to be sure
-      // we never lose it, cover all the monitors with the window.
-      x = m_x;
-      y = m_y;
-      w = m_w;
-      h = m_h;
-    }
-    SetWindowPos(desk->m_window, HWND_TOP, x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    // Cover the primary desktop while input is on another computer. This keeps
+    // local apps from receiving hover without changing the global cursor state.
+    SetWindowPos(desk->m_window, HWND_TOPMOST, m_x, m_y, m_w, m_h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     EnableWindow(desk->m_window, TRUE);
     SetCapture(desk->m_window);
     SetCursor(m_cursor);
@@ -654,6 +637,8 @@ void MSWindowsDesks::deskLeave(Desk *desk, HKL keyLayout)
       desk->m_foregroundWindow = nullptr;
     }
   } else {
+    setCursorVisibility(false);
+
     // move hider window under the cursor center, raise, and show it
     SetWindowPos(desk->m_window, HWND_TOP, m_xCenter, m_yCenter, 1, 1, SWP_NOACTIVATE | SWP_SHOWWINDOW);
 

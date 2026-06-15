@@ -20,4 +20,5 @@ private Q_SLOTS:
   void equalityCheck_diff_neighbours3();
   void equalityCheck_diff_physicalLayout();
   void physicalLayout_readWrite();
+  void renameScreen_updatesReferences();
 };

@@ -106,6 +106,11 @@ bool Config::renameScreen(const std::string &oldName, const std::string &newName
     return false;
   }
 
+  Name oldNameObj(this, oldCanonical);
+  for (auto &cell : m_map) {
+    cell.second.rename(oldNameObj, newName);
+  }
+
   // update cell
   Cell tmpCell = index->second;
   m_map.erase(index);
@@ -121,18 +126,10 @@ bool Config::renameScreen(const std::string &oldName, const std::string &newName
   m_nameToCanonicalName.erase(oldCanonical);
   m_nameToCanonicalName.insert(std::make_pair(newName, newName));
 
-  // update connections
-  Name oldNameObj(this, oldName);
-  for (index = m_map.begin(); index != m_map.end(); ++index) {
-    index->second.rename(oldNameObj, newName);
-  }
-
   // update alias targets
-  if (CaselessCmp::equal(oldName, oldCanonical)) {
-    for (auto iter = m_nameToCanonicalName.begin(); iter != m_nameToCanonicalName.end(); ++iter) {
-      if (CaselessCmp::equal(iter->second, oldCanonical)) {
-        iter->second = newName;
-      }
+  for (auto iter = m_nameToCanonicalName.begin(); iter != m_nameToCanonicalName.end(); ++iter) {
+    if (CaselessCmp::equal(iter->second, oldCanonical)) {
+      iter->second = newName;
     }
   }
 

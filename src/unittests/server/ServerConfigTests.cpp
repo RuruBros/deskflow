@@ -206,4 +206,27 @@ void ServerConfigTests::physicalLayout_readWrite()
   QVERIFY(actual == roundTrip);
 }
 
+void ServerConfigTests::renameScreen_updatesReferences()
+{
+  Config config(nullptr);
+  QVERIFY(config.addScreen("screenA"));
+  QVERIFY(config.addScreen("screenB"));
+  QVERIFY(config.addAlias("screenA", "aliasA"));
+  QVERIFY(config.connect("screenB", Direction::Right, 0.0f, 1.0f, "screenA", 0.0f, 1.0f));
+  QVERIFY(config.setPhysicalScreen("screenA", Config::PhysicalScreen{10.0f, 20.0f, 300.0f, 200.0f}));
+
+  QVERIFY(config.renameScreen("aliasA", "screenC"));
+
+  QVERIFY(!config.isScreen("screenA"));
+  QCOMPARE(config.getCanonicalName("aliasA"), "screenC");
+  QCOMPARE(config.getNeighbor("screenB", Direction::Right, 0.5f, nullptr), "screenC");
+
+  const auto *physicalScreen = config.getPhysicalScreen("screenC");
+  QVERIFY(physicalScreen != nullptr);
+  QCOMPARE(physicalScreen->x, 10.0f);
+  QCOMPARE(physicalScreen->y, 20.0f);
+  QCOMPARE(physicalScreen->width, 300.0f);
+  QCOMPARE(physicalScreen->height, 200.0f);
+}
+
 QTEST_MAIN(ServerConfigTests)
