@@ -9,6 +9,7 @@
 #pragma once
 
 #include "ScreenSetupModel.h"
+#include "common/NetworkProtocol.h"
 #include "config/ServerConfig.h"
 
 #include <QDialog>
@@ -95,10 +96,17 @@ protected:
   }
 
 private:
+  void loadFromConfig();
+  void initConnections();
   std::unique_ptr<Ui::ServerConfigDialog> ui;
   QString m_message = "";
+  int m_columns;
+  int m_rows;
   ServerConfig &m_originalServerConfig;
-  NetworkProtocol m_originalProtocol;
+  NetworkProtocol m_protocol;
+  bool m_enableHeartbeat;
+  bool m_enableSwitchDelay;
+  bool m_enableSwitchDoubleTap;
   bool m_originalServerConfigIsExternal;
   QString m_originalServerConfigUsesExternalFile;
   ServerConfig m_serverConfig;

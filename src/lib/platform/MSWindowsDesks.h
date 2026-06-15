@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2025 - 2026 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Synergy App Ltd
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -193,6 +193,9 @@ private:
     HWND m_window;
     HWND m_foregroundWindow;
     bool m_lowLevel;
+    bool m_hasRelativeRestorePosition = false;
+    int32_t m_relativeRestoreX = 0;
+    int32_t m_relativeRestoreY = 0;
   };
   using Desks = std::map<std::wstring, Desk *>;
 
@@ -209,6 +212,8 @@ private:
   void deskMouseMove(int32_t x, int32_t y) const;
   void deskMouseRelativeMove(int32_t dx, int32_t dy) const;
   void deskRestoreCursor();
+  void saveRelativeRestorePosition(Desk *desk) const;
+  bool restoreRelativeCursorPosition(Desk *desk) const;
   void deskEnter(Desk *desk);
   void deskLeave(Desk *desk, HKL keyLayout);
   void deskThread(const void *vdesk);
@@ -286,6 +291,7 @@ private:
 
   // options
   bool m_leaveForegroundOption;
+  bool m_relativeMouseMoves = false;
 
   IEventQueue *m_events;
 };

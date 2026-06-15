@@ -111,7 +111,7 @@ void Settings::cleanSettings()
 {
   const QStringList keys = m_settings->allKeys();
   for (const QString &key : keys) {
-    if (key.startsWith(QStringLiteral("internalConfig/protocol")))
+    if (m_oldServerConfigKeys.contains(key))
       m_settings->remove(key);
     if (key.startsWith(QStringLiteral("internalConfig")))
       continue;
@@ -208,7 +208,13 @@ QVariant Settings::defaultValue(const QString &key)
     return 1.0;
 
   if (key == Server::Protocol)
-    return QVariant::fromValue(NetworkProtocol::Barrier);
+    return networkProtocolToOption(NetworkProtocol::Barrier);
+
+  if (key == Server::GridWidth)
+    return kServerGridWidth;
+
+  if (key == Server::GridHeight)
+    return kServerGridHeight;
 
   return QVariant();
 }
@@ -216,6 +222,11 @@ QVariant Settings::defaultValue(const QString &key)
 QSettingsProxy &Settings::proxy()
 {
   return *instance()->m_settingsProxy;
+}
+
+NetworkProtocol Settings::networkProtocol()
+{
+  return networkProtocolFromString(Settings::value(Server::Protocol).toString());
 }
 
 void Settings::save(bool emitSaving)

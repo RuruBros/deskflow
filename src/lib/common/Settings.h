@@ -12,6 +12,7 @@
 #include <QDir>
 
 #include "common/Constants.h"
+#include "common/NetworkProtocol.h"
 #include "common/QSettingsProxy.h"
 
 class Settings : public QObject
@@ -103,8 +104,13 @@ public:
   };
   struct Server
   {
+    inline static const auto EnableHeatbeat = QStringLiteral("server/enableHeatbeat");
+    inline static const auto EnableSwitchDelay = QStringLiteral("server/enableSwitchDelay");
+    inline static const auto EnableSwitchDoubleTap = QStringLiteral("server/enableSwitchDoubleTap");
     inline static const auto ExternalConfig = QStringLiteral("server/externalConfig");
     inline static const auto ExternalConfigFile = QStringLiteral("server/externalConfigFile");
+    inline static const auto GridHeight = QStringLiteral("server/gridHeight");
+    inline static const auto GridWidth = QStringLiteral("server/gridWidth");
     inline static const auto Protocol = QStringLiteral("server/protocol");
     inline static const auto XdpRestoreToken = QStringLiteral("server/xdpRestoreToken");
   };
@@ -149,6 +155,7 @@ public:
   static QString tlsTrustedClientsDb();
   static QString logLevelText();
   static QSettingsProxy &proxy();
+  static NetworkProtocol networkProtocol();
   static void save(bool emitSaving = true);
   static QStringList validKeys();
   static QString portableSettingsFile();
@@ -239,8 +246,13 @@ private:
     , Settings::Security::CheckPeers
     , Settings::Security::KeySize
     , Settings::Security::TlsEnabled
+    , Settings::Server::EnableHeatbeat
+    , Settings::Server::EnableSwitchDelay
+    , Settings::Server::EnableSwitchDoubleTap
     , Settings::Server::ExternalConfig
     , Settings::Server::ExternalConfigFile
+    , Settings::Server::GridHeight
+    , Settings::Server::GridWidth
     , Settings::Server::Protocol
     , Settings::Server::XdpRestoreToken
   };
@@ -258,11 +270,14 @@ private:
     , Settings::Core::EnableEnterCommand
     , Settings::Core::EnableExitCommand
     , Settings::Client::DynamicConnectionRetry
-    , Settings::Server::ExternalConfig
     , Settings::Client::InvertYScroll
     , Settings::Client::InvertXScroll
     , Settings::Log::ToFile
     , Settings::Log::GuiDebug
+    , Settings::Server::EnableHeatbeat
+    , Settings::Server::EnableSwitchDelay
+    , Settings::Server::EnableSwitchDoubleTap
+    , Settings::Server::ExternalConfig
   };
 
   // When checking the default values this list contains the ones that default to true.
@@ -284,6 +299,15 @@ private:
   inline static const QMap<QString, QString> m_upgradedMap = {
     /*             OLD KEY                        NEW KEY          */
     {QStringLiteral("core/screenName"), Settings::Core::ComputerName}
+  };
+  // Contains settings removed from server-configuration file
+  inline static const QStringList m_oldServerConfigKeys = {
+      QStringLiteral("internalConfig/hasHeartbeat")
+    , QStringLiteral("internalConfig/hasSwitchDelay")
+    , QStringLiteral("internalConfig/hasSwitchDoubleTap")
+    , QStringLiteral("internalConfig/protocol")
+    , QStringLiteral("internalConfig/numColumns")
+    , QStringLiteral("internalConfig/numRows")
   };
   // clang-format on
 };
