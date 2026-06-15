@@ -149,6 +149,18 @@ void ClipboardTests::unMarshalText()
   clipboard.close();
 }
 
+void ClipboardTests::unMarshalRejectsTruncatedHeader()
+{
+  Clipboard clipboard;
+  clipboard.unmarshall(std::string(3, '\0'), 0);
+  clipboard.open(0);
+
+  QVERIFY(!clipboard.has(IClipboard::Format::Text));
+  QVERIFY(!clipboard.has(IClipboard::Format::HTML));
+  QVERIFY(!clipboard.has(IClipboard::Format::Bitmap));
+  clipboard.close();
+}
+
 void ClipboardTests::unMarshalLongerText()
 {
   Clipboard clipboard;

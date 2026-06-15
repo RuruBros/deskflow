@@ -29,6 +29,7 @@ private Q_SLOTS:
   void getNonEmptyText();
   void isOwnedByDeskflow();
   void bitmapConverter_rejectsTruncatedDibFromIClipboard();
+  void bitmapConverter_rejectsNonCanonicalDibFromIClipboard();
   void bitmapConverter_acceptsCompleteDibFromIClipboard();
   void bitmapConverter_rejectsTruncatedDibToIClipboard();
 

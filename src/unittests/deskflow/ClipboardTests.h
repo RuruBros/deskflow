@@ -21,6 +21,7 @@ private Q_SLOTS:
   void dualText();
   void marshalText();
   void unMarshalText();
+  void unMarshalRejectsTruncatedHeader();
   void unMarshalLongerText();
   void unMarshalTextAndHtml();
   void equalClipboards();

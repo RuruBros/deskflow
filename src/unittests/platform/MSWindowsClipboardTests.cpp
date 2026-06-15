@@ -180,6 +180,17 @@ void MSWindowsClipboardTests::bitmapConverter_rejectsTruncatedDibFromIClipboard(
   QCOMPARE(converter.fromIClipboard(truncatedDib), nullptr);
 }
 
+void MSWindowsClipboardTests::bitmapConverter_rejectsNonCanonicalDibFromIClipboard()
+{
+  MSWindowsClipboardBitmapConverter converter;
+  auto dib = makeDib(16);
+  auto *header = reinterpret_cast<BITMAPINFOHEADER *>(dib.data());
+  header->biSizeImage = 16;
+  dib.push_back('\0');
+
+  QCOMPARE(converter.fromIClipboard(dib), nullptr);
+}
+
 void MSWindowsClipboardTests::bitmapConverter_acceptsCompleteDibFromIClipboard()
 {
   MSWindowsClipboardBitmapConverter converter;

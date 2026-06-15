@@ -100,6 +100,32 @@ bool getDibLayout(
 
   return true;
 }
+
+bool isCanonicalIClipboardDib(const BITMAPINFOHEADER *bitmap, size_t pixelOffset, size_t pixelBytes, size_t size)
+{
+  size_t requiredSize = 0;
+  if (!checkedAdd(pixelOffset, pixelBytes, requiredSize)) {
+    return false;
+  }
+
+  if (bitmap->biSize != sizeof(BITMAPINFOHEADER) || bitmap->biCompression != BI_RGB || bitmap->biClrUsed != 0 ||
+      bitmap->biClrImportant != 0 || pixelOffset != sizeof(BITMAPINFOHEADER) || requiredSize != size) {
+    LOG_DEBUG(
+        "rejecting clipboard bitmap, non-canonical DIB: header=%u compression=%u offset=%zu required=%zu size=%zu",
+        bitmap->biSize, bitmap->biCompression, pixelOffset, requiredSize, size
+    );
+    return false;
+  }
+
+  if (bitmap->biSizeImage != 0 && bitmap->biSizeImage != pixelBytes) {
+    LOG_DEBUG(
+        "rejecting clipboard bitmap, inconsistent image size: header=%u actual=%zu", bitmap->biSizeImage, pixelBytes
+    );
+    return false;
+  }
+
+  return true;
+}
 } // namespace
 
 //
@@ -125,9 +151,9 @@ MSWindowsClipboardBitmapConverter::fromIClipboard(const std::string &data) const
   if (!getDibLayout(data.data(), data.size(), bitmap, pixelOffset, pixelBytes)) {
     return nullptr;
   }
-  (void)bitmap;
-  (void)pixelOffset;
-  (void)pixelBytes;
+  if (!isCanonicalIClipboardDib(bitmap, pixelOffset, pixelBytes, data.size())) {
+    return nullptr;
+  }
 
   // copy to memory handle
   HGLOBAL gData = GlobalAlloc(GMEM_MOVEABLE | GMEM_DDESHARE, data.size());
