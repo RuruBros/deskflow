@@ -13,6 +13,7 @@
 #include <Carbon/Carbon.h>
 
 #include <map>
+#include <string>
 #include <vector>
 
 class IOSXKeyResource;
@@ -150,7 +151,7 @@ private:
     KeyButtonOffset = 1
   };
 
-  using GroupMap = std::map<CFDataRef, int32_t>;
+  using GroupMap = std::map<std::string, int32_t>;
   using VirtualKeyMap = std::map<uint32_t, KeyID>;
 
   VirtualKeyMap m_virtualKeyMap;

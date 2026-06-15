@@ -127,6 +127,27 @@ static const KeyEntry s_controlKeys[] = {
 
 namespace {
 
+std::string cfStringToUtf8(CFStringRef string)
+{
+  if (!string) {
+    return {};
+  }
+
+  if (const auto direct = CFStringGetCStringPtr(string, kCFStringEncodingUTF8)) {
+    return direct;
+  }
+
+  const auto length = CFStringGetLength(string);
+  const auto maxSize = CFStringGetMaximumSizeForEncoding(length, kCFStringEncodingUTF8) + 1;
+  std::vector<char> buffer(static_cast<size_t>(maxSize));
+
+  if (!CFStringGetCString(string, buffer.data(), maxSize, kCFStringEncodingUTF8)) {
+    return {};
+  }
+
+  return buffer.data();
+}
+
 io_connect_t getService(io_iterator_t iter)
 {
   io_connect_t service = 0;
@@ -434,15 +455,15 @@ KeyModifierMask OSXKeyState::pollActiveModifiers() const
 int32_t OSXKeyState::pollActiveGroup() const
 {
   AutoTISInputSourceRef keyboardLayout(nullptr, CFRelease);
-  CFDataRef id = nullptr;
+  CFStringRef id = nullptr;
   {
     std::lock_guard<std::mutex> lock(g_tisMutex);
     keyboardLayout = AutoTISInputSourceRef(TISCopyCurrentKeyboardLayoutInputSource(), CFRelease);
     if (keyboardLayout)
-      id = (CFDataRef)TISGetInputSourceProperty(keyboardLayout.get(), kTISPropertyInputSourceID);
+      id = (CFStringRef)TISGetInputSourceProperty(keyboardLayout.get(), kTISPropertyInputSourceID);
   }
 
-  GroupMap::const_iterator i = m_groupMap.find(id);
+  GroupMap::const_iterator i = m_groupMap.find(cfStringToUtf8(id));
   if (i != m_groupMap.end()) {
     return i->second;
   }
@@ -475,12 +496,15 @@ void OSXKeyState::getKeyMap(deskflow::KeyMap &keyMap)
     numGroups = CFArrayGetCount(m_groups.get());
     for (int32_t g = 0; g < numGroups; ++g) {
       TISInputSourceRef keyboardLayout = (TISInputSourceRef)CFArrayGetValueAtIndex(m_groups.get(), g);
-      CFDataRef id = nullptr;
+      CFStringRef id = nullptr;
       {
         std::lock_guard<std::mutex> lock(g_tisMutex);
-        id = (CFDataRef)TISGetInputSourceProperty(keyboardLayout, kTISPropertyInputSourceID);
+        id = (CFStringRef)TISGetInputSourceProperty(keyboardLayout, kTISPropertyInputSourceID);
       }
-      m_groupMap[id] = g;
+      const auto idString = cfStringToUtf8(id);
+      if (!idString.empty()) {
+        m_groupMap[idString] = g;
+      }
     }
   }
 
