@@ -23,9 +23,9 @@ if (OSX_BUNDLE)
   endforeach()
 
   if(APPLE_CODESIGN_DEV)
-    set(MACDEPLOYQT_CODESIGN_ARGS -timestamp "-codesign=${APPLE_CODESIGN_DEV}")
+    set(MACDEPLOYQT_CODESIGN_ARGS "-codesign=${APPLE_CODESIGN_DEV}")
   else()
-    set(MACDEPLOYQT_CODESIGN_ARGS -timestamp -codesign=-)
+    set(MACDEPLOYQT_CODESIGN_ARGS -codesign=-)
   endif()
 
   set(MACDEPLOYQT_CODESIGN_ARGS_CODE)
