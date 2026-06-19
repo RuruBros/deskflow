@@ -1936,6 +1936,13 @@ bool Server::onMouseMovePrimary(int32_t x, int32_t y)
 
     // should we switch or not?
     if (isSwitchOkay(newScreen, dir, x, y, xc, yc)) {
+      LOG_INFO(
+          "primary edge switch from \"%s\" to \"%s\" on %s: cursor=%d,%d clamped=%d,%d target=%d,%d bounds=%d,%d "
+          "%dx%d zone=%d delta=%+d,%+d",
+          getName(m_active).c_str(), getName(newScreen).c_str(), Config::dirName(dir), m_x, m_y, xc, yc, x, y, ax,
+          ay, aw, ah, zoneSize, m_xDelta, m_yDelta
+      );
+
       // switch screen
       switchScreen(newScreen, x, y, false, "primary-edge-motion");
       return true;

@@ -979,7 +979,7 @@ bool OSXScreen::onMouseMove()
   CGFloat x = mx - m_xCursor;
   CGFloat y = my - m_yCursor;
 
-  if ((x == 0 && y == 0) || (mx == m_xCenter && mx == m_yCenter)) {
+  if ((x == 0 && y == 0) || (mx == m_xCenter && my == m_yCenter)) {
     return true;
   }
 

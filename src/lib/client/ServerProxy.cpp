@@ -502,6 +502,7 @@ void ServerProxy::enter()
   uint32_t seqNum;
   ProtocolUtil::readf(m_stream, kMsgCEnter + 4, &x, &y, &seqNum, &mask);
   LOG_VERBOSE("recv enter, %d,%d %d %04x", x, y, seqNum, mask);
+  LOG_INFO("server requested enter at %d,%d seq=%u mask=%04x", x, y, seqNum, mask);
 
   // discard old compressed mouse motion, if any
   m_compressMouse = false;
@@ -520,6 +521,7 @@ void ServerProxy::leave()
 {
   // parse
   LOG_VERBOSE("recv leave");
+  LOG_INFO("server requested leave");
 
   // send last mouse motion
   flushCompressedMouse();
