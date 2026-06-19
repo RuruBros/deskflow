@@ -449,9 +449,12 @@ int32_t Server::getJumpZoneSize(const BaseClientProxy *client) const
   }
 }
 
-void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forScreensaver)
+void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forScreensaver, const char *reason)
 {
   assert(dst != nullptr);
+  if (reason == nullptr) {
+    reason = "unknown";
+  }
 
   int32_t dx;
   int32_t dy;
@@ -490,7 +493,10 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
 
   assert(m_active != nullptr);
 
-  LOG_INFO("switch from \"%s\" to \"%s\" at %d,%d", getName(m_active).c_str(), getName(dst).c_str(), x, y);
+  LOG_INFO(
+      "switch from \"%s\" to \"%s\" at %d,%d reason=%s%s", getName(m_active).c_str(), getName(dst).c_str(), x, y,
+      reason, forScreensaver ? " screensaver=true" : ""
+  );
 
   // stop waiting to switch
   stopSwitch();
@@ -564,7 +570,7 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
   }
 }
 
-void Server::jumpToScreen(BaseClientProxy *newScreen)
+void Server::jumpToScreen(BaseClientProxy *newScreen, const char *reason)
 {
   assert(newScreen != nullptr);
 
@@ -576,7 +582,7 @@ void Server::jumpToScreen(BaseClientProxy *newScreen)
   int32_t y;
   newScreen->getJumpCursorPos(x, y);
 
-  switchScreen(newScreen, x, y, false);
+  switchScreen(newScreen, x, y, false, reason);
 }
 
 float Server::mapToFraction(const BaseClientProxy *client, Direction dir, int32_t x, int32_t y) const
@@ -1490,7 +1496,7 @@ void Server::handleSwitchWaitTimeout()
   }
 
   // switch screen
-  switchScreen(m_switchScreen, m_switchWaitX, m_switchWaitY, false);
+  switchScreen(m_switchScreen, m_switchWaitX, m_switchWaitY, false, "switch-wait-timeout");
 }
 
 void Server::handleClientDisconnected(BaseClientProxy *client)
@@ -1525,7 +1531,7 @@ void Server::handleSwitchToScreenEvent(const Event &event)
   if (index == m_clients.end()) {
     LOG_VERBOSE("screen \"%s\" not active", info->m_screen.c_str());
   } else {
-    jumpToScreen(index->second);
+    jumpToScreen(index->second, "switch-to-screen-action");
   }
 }
 
@@ -1540,7 +1546,7 @@ void Server::handleSwitchInDirectionEvent(const Event &event)
   if (newScreen == nullptr) {
     LOG_VERBOSE("no neighbor %s", Config::dirName(info->m_direction));
   } else {
-    jumpToScreen(newScreen);
+    jumpToScreen(newScreen, "switch-in-direction-action");
   }
 }
 
@@ -1576,7 +1582,7 @@ void Server::handleToggleScreenEvent(const Event &)
     return;
   }
 
-  jumpToScreen(clientIt->second);
+  jumpToScreen(clientIt->second, "toggle-screen-action");
 }
 
 void Server::handleKeyboardBroadcastEvent(const Event &event)
@@ -1752,7 +1758,7 @@ void Server::onScreensaver(bool activated)
       }
 
       // jump
-      switchScreen(screen, m_xSaver, m_ySaver, false);
+      switchScreen(screen, m_xSaver, m_ySaver, false, "screensaver-deactivated-restore");
     }
 
     // reset state
@@ -1931,7 +1937,7 @@ bool Server::onMouseMovePrimary(int32_t x, int32_t y)
     // should we switch or not?
     if (isSwitchOkay(newScreen, dir, x, y, xc, yc)) {
       // switch screen
-      switchScreen(newScreen, x, y, false);
+      switchScreen(newScreen, x, y, false, "primary-edge-motion");
       return true;
     }
   }
@@ -2090,7 +2096,7 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
     );
 
     // switch screens
-    switchScreen(newScreen, newX, newY, false);
+    switchScreen(newScreen, newX, newY, false, "secondary-edge-motion");
   } else {
     // same screen.  clamp mouse to edge.
     m_x = xOld + dx;
@@ -2214,7 +2220,7 @@ void Server::closeClient(BaseClientProxy *client, const char *msg)
 
   // if this client is the active screen then we have to
   // jump off of it
-  forceLeaveClient(client);
+  forceLeaveClient(client, "client-close-request");
 }
 
 void Server::closeClients(const ServerConfig &config)
@@ -2242,7 +2248,7 @@ void Server::closeClients(const ServerConfig &config)
 void Server::removeActiveClient(BaseClientProxy *client)
 {
   if (removeClient(client)) {
-    forceLeaveClient(client);
+    forceLeaveClient(client, "client-disconnected");
     m_events->removeHandler(EventTypes::ClientProxyDisconnected, client);
     if (m_clients.size() == 1 && m_oldClients.empty()) {
       m_events->addEvent(Event(EventTypes::ServerDisconnected, this));
@@ -2265,8 +2271,12 @@ void Server::removeOldClient(BaseClientProxy *client)
   }
 }
 
-void Server::forceLeaveClient(const BaseClientProxy *client)
+void Server::forceLeaveClient(const BaseClientProxy *client, const char *reason)
 {
+  if (reason == nullptr) {
+    reason = "unknown";
+  }
+
   if (client == m_switchScreen) {
     stopSwitch();
   }
@@ -2278,8 +2288,8 @@ void Server::forceLeaveClient(const BaseClientProxy *client)
     // don't notify active screen since it has probably already
     // disconnected.
     LOG_INFO(
-        "active client \"%s\" was removed; returning to \"%s\" at %d,%d", getName(active).c_str(),
-        getName(m_primaryClient).c_str(), m_x, m_y
+        "active client \"%s\" was removed; returning to \"%s\" at %d,%d reason=%s", getName(active).c_str(),
+        getName(m_primaryClient).c_str(), m_x, m_y, reason
     );
 
     // cut over

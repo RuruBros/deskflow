@@ -221,10 +221,10 @@ private:
   int32_t getJumpZoneSize(const BaseClientProxy *) const;
 
   // change the active screen
-  void switchScreen(BaseClientProxy *, int32_t x, int32_t y, bool forScreenSaver);
+  void switchScreen(BaseClientProxy *, int32_t x, int32_t y, bool forScreenSaver, const char *reason);
 
   // jump to screen
-  void jumpToScreen(BaseClientProxy *);
+  void jumpToScreen(BaseClientProxy *, const char *reason);
 
   // convert pixel position to fraction, using x or y depending on the
   // direction.
@@ -363,7 +363,7 @@ private:
   void removeOldClient(BaseClientProxy *);
 
   // force the cursor off of \p client
-  void forceLeaveClient(const BaseClientProxy *client);
+  void forceLeaveClient(const BaseClientProxy *client, const char *reason);
 
 private:
   class ClipboardInfo
