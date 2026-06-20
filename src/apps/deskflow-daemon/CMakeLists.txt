@@ -17,6 +17,8 @@ if(WIN32)
     ${target}.cpp
     DaemonApp.cpp
     DaemonApp.h
+    DaemonConfigPolicy.cpp
+    DaemonConfigPolicy.h
     ${CMAKE_CURRENT_BINARY_DIR}/${target}.rc)
 
   target_link_libraries(

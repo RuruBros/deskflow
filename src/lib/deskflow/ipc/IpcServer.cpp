@@ -51,6 +51,7 @@ void IpcServer::handleNewConnection()
   }
 
   LOG_DEBUG("%s ipc server got new connection", m_typeName.constData());
+  m_clients.insert(clientSocket);
 
   connect(clientSocket, &QLocalSocket::readyRead, this, &IpcServer::handleReadyRead);
   connect(clientSocket, &QLocalSocket::disconnected, this, &IpcServer::handleDisconnected);
@@ -133,50 +134,20 @@ void IpcServer::processMessage(QLocalSocket *clientSocket, const QString &messag
       return;
     }
 
-    if (!authorizeClient(clientSocket)) {
-      LOG_WARN("%s ipc client authorization failed", m_typeName.constData());
-      writeToClientSocket(clientSocket, "error=unauthorized");
-      clientSocket->flush();
-      clientSocket->disconnectFromServer();
-      return;
-    }
-
     LOG_DEBUG("%s ipc server sending hello back", m_typeName.constData());
     writeToClientSocket(clientSocket, QStringLiteral("hello=%1").arg(versionId));
 
-    const bool wasAuthorized = m_clients.contains(clientSocket);
-    m_clients.insert(clientSocket);
-
-    if (!wasAuthorized) {
-      // Replay messages that were queued before any clients connected.
-      LOG_VERBOSE("ipc server replaying %d pending messages", m_pendingMessages.size());
-      for (const auto &pending : std::as_const(m_pendingMessages)) {
-        LOG_VERBOSE("%s ipc server replaying: %s", m_typeName.constData(), pending.toUtf8().constData());
-        writeToClientSocket(clientSocket, pending);
-      }
-      m_pendingMessages.clear();
+    // Replay messages that were queued before any clients connected.
+    LOG_VERBOSE("ipc server replaying %d pending messages", m_pendingMessages.size());
+    for (const auto &pending : std::as_const(m_pendingMessages)) {
+      LOG_VERBOSE("%s ipc server replaying: %s", m_typeName.constData(), pending.toUtf8().constData());
+      writeToClientSocket(clientSocket, pending);
     }
+    m_pendingMessages.clear();
   } else if (command == QStringLiteral("noop")) {
-    if (!m_clients.contains(clientSocket)) {
-      LOG_WARN("%s ipc server got noop before authorization", m_typeName.constData());
-      writeToClientSocket(clientSocket, "error=unauthorized");
-      clientSocket->flush();
-      clientSocket->disconnectFromServer();
-      return;
-    }
     LOG_DEBUG("%s ipc server got noop message", m_typeName.constData());
     writeToClientSocket(clientSocket, QStringLiteral("ok"));
   } else {
-    if (!m_clients.contains(clientSocket)) {
-      LOG_WARN(
-          "%s ipc server got command before authorization: %s", m_typeName.constData(),
-          command.toUtf8().constData()
-      );
-      writeToClientSocket(clientSocket, "error=unauthorized");
-      clientSocket->flush();
-      clientSocket->disconnectFromServer();
-      return;
-    }
     processCommand(clientSocket, command, parts);
   }
 
@@ -216,12 +187,6 @@ void IpcServer::writeToClientSocket(QLocalSocket *&clientSocket, const QString &
         "%s ipc server wrote message to client socket: %s", m_typeName.constData(), message.toUtf8().constData()
     );
   }
-}
-
-bool IpcServer::authorizeClient(QLocalSocket *clientSocket)
-{
-  Q_UNUSED(clientSocket)
-  return true;
 }
 
 } // namespace deskflow::core::ipc
