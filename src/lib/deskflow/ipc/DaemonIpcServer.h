@@ -23,6 +23,7 @@ public:
   explicit DaemonIpcServer(QObject *parent, const QString &logFilename);
 
 private:
+  bool authorizeClient(QLocalSocket *clientSocket) override;
   void processCommand(QLocalSocket *clientSocket, const QString &command, const QStringList &parts) override;
   void processLogLevel(QLocalSocket *&clientSocket, const QStringList &messageParts);
   void processConfigFile(QLocalSocket *&clientSocket, const QStringList &messageParts);

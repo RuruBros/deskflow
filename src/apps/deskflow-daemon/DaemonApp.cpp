@@ -11,27 +11,160 @@
 #include "base/IEventQueue.h"
 #include "base/Log.h"
 #include "base/LogOutputters.h"
+#include "common/Constants.h"
 #include "common/ExitCodes.h"
 #include "common/Settings.h"
 #include "deskflow/ipc/DaemonIpcServer.h"
 
 #if defined(Q_OS_WIN)
 #include "arch/win32/ArchDaemonWindows.h"
+#include "arch/win32/XArchWindows.h"
 #include "deskflow/Screen.h"
 #include "platform/MSWindowsDebugOutputter.h"
 #include "platform/MSWindowsEventQueueBuffer.h"
+#include "platform/MSWindowsHandle.h"
 #include "platform/MSWindowsWatchdog.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
+#include <UserEnv.h>
+#include <Wtsapi32.h>
 
 #endif
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QFileInfo>
 #include <QSettings>
+#include <QStringList>
+
+#include <string>
+#include <utility>
 
 using namespace deskflow::core;
+
+#if defined(Q_OS_WIN)
+namespace {
+
+QString normalizedPath(const QString &path)
+{
+  const QFileInfo fileInfo(path);
+  auto normalized = fileInfo.canonicalFilePath();
+  if (normalized.isEmpty()) {
+    normalized = fileInfo.absoluteFilePath();
+  }
+  return QDir::cleanPath(normalized);
+}
+
+bool pathsMatch(const QString &lhs, const QString &rhs)
+{
+  const auto lhsCanonical = QFileInfo(lhs).canonicalFilePath();
+  if (lhsCanonical.isEmpty()) {
+    return false;
+  }
+
+  const auto rhsAbsolute = QFileInfo(rhs).absoluteFilePath();
+  return QDir::cleanPath(lhsCanonical).compare(QDir::cleanPath(rhsAbsolute), Qt::CaseInsensitive) == 0;
+}
+
+bool hasReparsePoint(const QString &path)
+{
+  const auto nativePath = QDir::toNativeSeparators(path).toStdWString();
+  const DWORD attrs = GetFileAttributesW(nativePath.c_str());
+  if (attrs == INVALID_FILE_ATTRIBUTES) {
+    LOG_WARN("could not query config file attributes: %s", windowsErrorToString(GetLastError()).c_str());
+    return true;
+  }
+
+  return (attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+}
+
+QString activeUserSettingsFile()
+{
+  const DWORD activeSessionId = WTSGetActiveConsoleSessionId();
+  if (activeSessionId == 0xFFFFFFFF) {
+    LOG_WARN("cannot resolve active user settings file: no active console session");
+    return {};
+  }
+
+  HANDLE token = nullptr;
+  if (!WTSQueryUserToken(activeSessionId, &token)) {
+    LOG_DEBUG(
+        "could not query active user token for config allowlist, falling back to daemon user dir, error: %s",
+        windowsErrorToString(GetLastError()).c_str()
+    );
+    return Settings::UserSettingFile;
+  }
+
+  MSWindowsHandle tokenHandle(token);
+
+  DWORD profilePathSize = 0;
+  GetUserProfileDirectoryW(tokenHandle.get(), nullptr, &profilePathSize);
+  if (profilePathSize == 0 && GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
+    LOG_WARN("could not query active user profile size, error: %s", windowsErrorToString(GetLastError()).c_str());
+    return {};
+  }
+
+  std::wstring profilePath(profilePathSize, L'\0');
+  if (!GetUserProfileDirectoryW(tokenHandle.get(), profilePath.data(), &profilePathSize)) {
+    LOG_WARN("could not query active user profile path, error: %s", windowsErrorToString(GetLastError()).c_str());
+    return {};
+  }
+
+  if (profilePathSize > 0 && profilePath.at(profilePathSize - 1) == L'\0') {
+    profilePath.resize(profilePathSize - 1);
+  } else {
+    profilePath.resize(profilePathSize);
+  }
+
+  return QStringLiteral("%1/AppData/Roaming/%2/%2.conf").arg(QString::fromStdWString(profilePath), kAppName);
+}
+
+bool isAllowedConfigFile(const QString &configFile)
+{
+  if (configFile.startsWith(QStringLiteral("\\\\")) || configFile.startsWith(QStringLiteral("//"))) {
+    LOG_ERR("remote config file paths are not allowed: %s", qPrintable(configFile));
+    return false;
+  }
+
+  const QFileInfo configFileInfo(configFile);
+  if (!configFileInfo.isAbsolute()) {
+    LOG_ERR("relative config file paths are not allowed: %s", qPrintable(configFile));
+    return false;
+  }
+
+  if (!configFileInfo.exists() || !configFileInfo.isFile()) {
+    LOG_ERR("config file does not exist or is not a regular file: %s", qPrintable(configFile));
+    return false;
+  }
+
+  if (hasReparsePoint(configFile)) {
+    LOG_ERR("config file reparse points are not allowed: %s", qPrintable(configFile));
+    return false;
+  }
+
+  QStringList allowedFiles{
+      Settings::SystemSettingFile,
+      Settings::portableSettingsFile(),
+      Settings::UserSettingFile,
+  };
+
+  if (const auto activeUserFile = activeUserSettingsFile(); !activeUserFile.isEmpty()) {
+    allowedFiles.append(activeUserFile);
+  }
+
+  for (const auto &allowedFile : std::as_const(allowedFiles)) {
+    if (pathsMatch(configFile, allowedFile)) {
+      return true;
+    }
+  }
+
+  LOG_ERR("config file path is not allowed: %s", qPrintable(normalizedPath(configFile)));
+  return false;
+}
+
+} // namespace
+#endif
 
 DaemonApp::DaemonApp(IEventQueue &events) : m_events(events)
 {
@@ -49,6 +182,13 @@ void DaemonApp::saveLogLevel(const QString &logLevel) const
 
 void DaemonApp::setConfigFile(const QString &configFile)
 {
+#if defined(Q_OS_WIN)
+  if (!isAllowedConfigFile(configFile)) {
+    LOG_ERR("refusing daemon config file update: %s", qPrintable(configFile));
+    return;
+  }
+#endif
+
   LOG_DEBUG("config file updated: %s", configFile.toUtf8().constData());
   m_configFile = configFile;
   Settings::setValue(Settings::Daemon::ConfigFile, configFile);
@@ -62,16 +202,8 @@ void DaemonApp::applyWatchdogCommand() const
     return;
   }
 
-  // QFileInfo::exists on a UNC path triggers SMB auth from this SYSTEM-context
-  // process, leaking the machine NTLM hash to whoever controls the remote host.
-  // Any local user can reach this via the IPC pipe, so reject remote paths up front.
-  if (m_configFile.startsWith(QStringLiteral("\\\\")) || m_configFile.startsWith(QStringLiteral("//"))) {
-    LOG_ERR("cannot apply watchdog command: remote config file paths are not allowed: %s", qPrintable(m_configFile));
-    return;
-  }
-
-  if (!QFileInfo::exists(m_configFile)) {
-    LOG_ERR("cannot apply watchdog command: config file does not exist: %s", qPrintable(m_configFile));
+  if (!isAllowedConfigFile(m_configFile)) {
+    LOG_ERR("cannot apply watchdog command: config file is not allowed: %s", qPrintable(m_configFile));
     return;
   }
 

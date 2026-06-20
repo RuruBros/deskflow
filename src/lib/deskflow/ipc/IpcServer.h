@@ -33,6 +33,8 @@ Q_SIGNALS:
   void clearSettingsRequested();
 
 protected:
+  virtual bool authorizeClient(QLocalSocket *clientSocket);
+
   /**!
    * Write a message to the client socket and append a newline character.
    *
