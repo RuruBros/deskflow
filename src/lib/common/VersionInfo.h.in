@@ -7,6 +7,9 @@
 
 #pragma once
 
+// These values are compiled into GUI, core, daemon, and IPC handshake code.
+// Rebuild every executable that includes this header before installing an app
+// bundle, otherwise a fresh GUI can still talk to a stale core IPC server.
 const auto kVersion = "@CMAKE_PROJECT_VERSION@";
 const auto kVersionGitSha = "@GIT_SHA_SHORT@";
 const auto kDisplayVersion = @CMAKE_PROJECT_VERSION_TWEAK@

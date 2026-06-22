@@ -41,6 +41,13 @@ add_executable(${target} WIN32 MACOSX_BUNDLE
   deskflow-gui.cpp
 )
 
+if(APPLE AND BUILD_OSX_BUNDLE)
+  # The macOS app bundle contains both Deskflow and deskflow-core. A GUI-only
+  # build must refresh the core binary too, otherwise the bundle can mix a new
+  # GUI with a stale core IPC version after a git-derived version change.
+  add_dependencies(${target} ${CMAKE_PROJECT_NAME}-core)
+endif()
+
 target_link_libraries(
   ${target}
   gui

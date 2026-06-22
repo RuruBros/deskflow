@@ -77,6 +77,38 @@ For development codesign:
 7. Configure and build
 8. To verify, run: `codesign -d -r- build/bin/Deskflow.app`
 
+### macOS app bundle rebuilds
+
+The macOS app bundle contains both `Deskflow` and `deskflow-core` in `Contents/MacOS`. The GUI and core also embed the git-derived version from `VersionInfo.h`; that value is used for core IPC handshakes, not only for `--version` output.
+
+After switching commits, rebasing, or changing generated version metadata, rebuild the app bundle target before copying `Deskflow.app` to `/Applications`. Building only a stale bundle copy can leave a fresh GUI next to an older core IPC server.
+
+Recommended local rebuild:
+
+```sh
+cmake --build build/macos-release --target clean
+cmake --build build/macos-release --target Deskflow
+```
+
+Before replacing `/Applications/Deskflow.app`, verify the bundle reports the current git SHA from both executables:
+
+```sh
+expected_sha="$(git rev-parse --short=8 HEAD)"
+app="build/macos-release/bin/Deskflow.app"
+"$app/Contents/MacOS/Deskflow" --version | grep "$expected_sha"
+"$app/Contents/MacOS/deskflow-core" --version | grep "$expected_sha"
+```
+
+After launching the app, verify the running core IPC server answers with the same version ID:
+
+```sh
+version_id="$(
+  /Applications/Deskflow.app/Contents/MacOS/deskflow-core --version |
+    sed -nE 's/^deskflow-core v([^ ]+) \(([0-9a-f]{8})\).*/\1+\2/p'
+)"
+printf "hello=%s\n" "$version_id" | nc -U -w 1 "${TMPDIR}deskflow-core" | grep "hello=$version_id"
+```
+
 ## Build
 
 After configuring you should be able to run make to build all targets.
