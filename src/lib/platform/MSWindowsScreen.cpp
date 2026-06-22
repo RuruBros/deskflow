@@ -25,6 +25,7 @@
 #include "platform/MSWindowsClipboard.h"
 #include "platform/MSWindowsDesks.h"
 #include "platform/MSWindowsEventQueueBuffer.h"
+#include "platform/MSWindowsKeyInput.h"
 #include "platform/MSWindowsKeyState.h"
 #include "platform/MSWindowsScreenSaver.h"
 
@@ -1724,14 +1725,10 @@ LRESULT CALLBACK MSWindowsScreen::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LP
 
 void MSWindowsScreen::fakeLocalKey(KeyButton button, bool press) const
 {
-  INPUT input;
-  input.type = INPUT_KEYBOARD;
-  input.ki.wVk = m_keyState->mapButtonToVirtualKey(button);
-  DWORD pressFlag = press ? KEYEVENTF_EXTENDEDKEY : KEYEVENTF_KEYUP;
-  input.ki.dwFlags = pressFlag;
-  input.ki.time = 0;
-  input.ki.dwExtraInfo = 0;
-  SendInput(1, &input, sizeof(input));
+  auto input = makeWindowsKeyInput(m_keyState->mapButtonToVirtualKey(button), button, press);
+  if (SendInput(1, &input, sizeof(input)) != 1) {
+    LOG_WARN("failed to restore local key state for button %d: %lu", button, GetLastError());
+  }
 }
 
 //

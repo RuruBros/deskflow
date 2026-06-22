@@ -175,7 +175,7 @@ static void keyboardGetState(BYTE keys[256], DWORD vkCode, bool kf_up)
   // Test whether GetAsyncKeyState() is being honest with us
   key = GetAsyncKeyState(vkCode);
 
-  if (key & 0x80) {
+  if (key < 0) {
     // The only time we know for sure that GetAsyncKeyState() is working
     // is when it tells us that the current key is down.
     // In this case, update g_keyState to reflect what GetAsyncKeyState()
