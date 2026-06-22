@@ -27,6 +27,33 @@ std::string makeDib(size_t pixelBytes)
   return dib;
 }
 
+std::string makeMacOsBitmapV5Dib()
+{
+  BITMAPV5HEADER header = {};
+  header.bV5Size = sizeof(BITMAPV5HEADER);
+  header.bV5Width = 2;
+  header.bV5Height = 2;
+  header.bV5Planes = 1;
+  header.bV5BitCount = 32;
+  header.bV5Compression = BI_BITFIELDS;
+  header.bV5SizeImage = 16;
+  header.bV5RedMask = 0x00ff0000;
+  header.bV5GreenMask = 0x0000ff00;
+  header.bV5BlueMask = 0x000000ff;
+  header.bV5AlphaMask = 0xff000000;
+  header.bV5CSType = LCS_sRGB;
+
+  std::string dib(reinterpret_cast<const char *>(&header), sizeof(header));
+  const char pixels[16] = {
+      static_cast<char>(0x10), static_cast<char>(0x20), static_cast<char>(0x30), static_cast<char>(0x40),
+      static_cast<char>(0x50), static_cast<char>(0x60), static_cast<char>(0x70), static_cast<char>(0x80),
+      static_cast<char>(0x90), static_cast<char>(0xa0), static_cast<char>(0xb0), static_cast<char>(0xc0),
+      static_cast<char>(0xd0), static_cast<char>(0xe0), static_cast<char>(0xf0), static_cast<char>(0xff),
+  };
+  dib.append(pixels, sizeof(pixels));
+  return dib;
+}
+
 HGLOBAL makeGlobalDib(const std::string &dib)
 {
   HGLOBAL handle = GlobalAlloc(GMEM_MOVEABLE, dib.size());
@@ -199,6 +226,33 @@ void MSWindowsClipboardTests::bitmapConverter_acceptsCompleteDibFromIClipboard()
   HGLOBAL handle = converter.fromIClipboard(completeDib);
   QVERIFY(handle != nullptr);
   QCOMPARE(GlobalSize(handle), completeDib.size());
+  GlobalFree(handle);
+}
+
+void MSWindowsClipboardTests::bitmapConverter_normalizesMacOsBitmapV5DibFromIClipboard()
+{
+  MSWindowsClipboardBitmapConverter converter;
+  const auto source = makeMacOsBitmapV5Dib();
+
+  HGLOBAL handle = converter.fromIClipboard(source);
+  QVERIFY(handle != nullptr);
+  QCOMPARE(GlobalSize(handle), sizeof(BITMAPINFOHEADER) + 16);
+
+  const auto *data = static_cast<const char *>(GlobalLock(handle));
+  QVERIFY(data != nullptr);
+  const auto *header = reinterpret_cast<const BITMAPINFOHEADER *>(data);
+  QCOMPARE(header->biSize, static_cast<DWORD>(sizeof(BITMAPINFOHEADER)));
+  QCOMPARE(header->biWidth, static_cast<LONG>(2));
+  QCOMPARE(header->biHeight, static_cast<LONG>(2));
+  QCOMPARE(header->biPlanes, static_cast<WORD>(1));
+  QCOMPARE(header->biBitCount, static_cast<WORD>(32));
+  QCOMPARE(header->biCompression, static_cast<DWORD>(BI_RGB));
+  QCOMPARE(header->biSizeImage, static_cast<DWORD>(16));
+  QCOMPARE(
+      std::string(data + sizeof(BITMAPINFOHEADER), 16),
+      source.substr(sizeof(BITMAPV5HEADER), 16)
+  );
+  GlobalUnlock(handle);
   GlobalFree(handle);
 }
 

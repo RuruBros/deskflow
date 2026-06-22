@@ -108,12 +108,19 @@ bool isCanonicalIClipboardDib(const BITMAPINFOHEADER *bitmap, size_t pixelOffset
     return false;
   }
 
-  if (bitmap->biSize != sizeof(BITMAPINFOHEADER) || bitmap->biCompression != BI_RGB || bitmap->biClrUsed != 0 ||
-      bitmap->biClrImportant != 0 || pixelOffset != sizeof(BITMAPINFOHEADER) || requiredSize != size) {
-    LOG_DEBUG(
-        "rejecting clipboard bitmap, non-canonical DIB: header=%u compression=%u offset=%zu required=%zu size=%zu",
-        bitmap->biSize, bitmap->biCompression, pixelOffset, requiredSize, size
-    );
+  if (requiredSize != size || (bitmap->biSizeImage != 0 && bitmap->biSizeImage != pixelBytes)) {
+    return false;
+  }
+
+  return bitmap->biSize == sizeof(BITMAPINFOHEADER) && bitmap->biCompression == BI_RGB && bitmap->biClrUsed == 0 &&
+         bitmap->biClrImportant == 0 && pixelOffset == sizeof(BITMAPINFOHEADER);
+}
+
+bool isCompleteDibPayload(const BITMAPINFOHEADER *bitmap, size_t pixelOffset, size_t pixelBytes, size_t size)
+{
+  size_t requiredSize = 0;
+  if (!checkedAdd(pixelOffset, pixelBytes, requiredSize) || requiredSize != size) {
+    LOG_DEBUG("rejecting clipboard bitmap, inconsistent payload size: required=%zu size=%zu", requiredSize, size);
     return false;
   }
 
@@ -125,6 +132,61 @@ bool isCanonicalIClipboardDib(const BITMAPINFOHEADER *bitmap, size_t pixelOffset
   }
 
   return true;
+}
+
+std::string normalizeMacOsBitmapV5(
+    const void *data, const BITMAPINFOHEADER *bitmap, size_t pixelOffset, size_t pixelBytes
+)
+{
+  if (bitmap->biSize != sizeof(BITMAPV5HEADER) || bitmap->biBitCount != 32 ||
+      bitmap->biCompression != BI_BITFIELDS || pixelOffset != sizeof(BITMAPV5HEADER) ||
+      pixelBytes > std::numeric_limits<DWORD>::max()) {
+    return {};
+  }
+
+  BITMAPV5HEADER source = {};
+  memcpy(&source, data, sizeof(source));
+  if (source.bV5RedMask != 0x00ff0000 || source.bV5GreenMask != 0x0000ff00 ||
+      source.bV5BlueMask != 0x000000ff || (source.bV5AlphaMask != 0 && source.bV5AlphaMask != 0xff000000)) {
+    LOG_DEBUG(
+        "rejecting macOS clipboard bitmap, unsupported masks: red=%08x green=%08x blue=%08x alpha=%08x",
+        source.bV5RedMask, source.bV5GreenMask, source.bV5BlueMask, source.bV5AlphaMask
+    );
+    return {};
+  }
+
+  BITMAPINFOHEADER normalized = {};
+  normalized.biSize = sizeof(normalized);
+  normalized.biWidth = source.bV5Width;
+  normalized.biHeight = source.bV5Height;
+  normalized.biPlanes = source.bV5Planes;
+  normalized.biBitCount = source.bV5BitCount;
+  normalized.biCompression = BI_RGB;
+  normalized.biSizeImage = static_cast<DWORD>(pixelBytes);
+  normalized.biXPelsPerMeter = source.bV5XPelsPerMeter;
+  normalized.biYPelsPerMeter = source.bV5YPelsPerMeter;
+
+  std::string result(reinterpret_cast<const char *>(&normalized), sizeof(normalized));
+  result.append(static_cast<const char *>(data) + pixelOffset, pixelBytes);
+  return result;
+}
+
+HGLOBAL copyToGlobalMemory(const void *data, size_t size)
+{
+  HGLOBAL result = GlobalAlloc(GMEM_MOVEABLE | GMEM_DDESHARE, size);
+  if (result == nullptr) {
+    return nullptr;
+  }
+
+  auto *destination = static_cast<char *>(GlobalLock(result));
+  if (destination == nullptr) {
+    GlobalFree(result);
+    return nullptr;
+  }
+
+  memcpy(destination, data, size);
+  GlobalUnlock(result);
+  return result;
 }
 } // namespace
 
@@ -151,25 +213,25 @@ MSWindowsClipboardBitmapConverter::fromIClipboard(const std::string &data) const
   if (!getDibLayout(data.data(), data.size(), bitmap, pixelOffset, pixelBytes)) {
     return nullptr;
   }
-  if (!isCanonicalIClipboardDib(bitmap, pixelOffset, pixelBytes, data.size())) {
+  if (!isCompleteDibPayload(bitmap, pixelOffset, pixelBytes, data.size())) {
     return nullptr;
   }
 
-  // copy to memory handle
-  HGLOBAL gData = GlobalAlloc(GMEM_MOVEABLE | GMEM_DDESHARE, data.size());
-  if (gData != nullptr) {
-    // get a pointer to the allocated memory
-    char *dst = (char *)GlobalLock(gData);
-    if (dst != nullptr) {
-      memcpy(dst, data.data(), data.size());
-      GlobalUnlock(gData);
-    } else {
-      GlobalFree(gData);
-      gData = nullptr;
-    }
+  if (isCanonicalIClipboardDib(bitmap, pixelOffset, pixelBytes, data.size())) {
+    return copyToGlobalMemory(data.data(), data.size());
   }
 
-  return gData;
+  const auto normalized = normalizeMacOsBitmapV5(data.data(), bitmap, pixelOffset, pixelBytes);
+  if (!normalized.empty()) {
+    LOG_DEBUG("normalized macOS BITMAPV5HEADER clipboard bitmap to BI_RGB");
+    return copyToGlobalMemory(normalized.data(), normalized.size());
+  }
+
+  LOG_DEBUG(
+      "rejecting clipboard bitmap, unsupported DIB layout: header=%u compression=%u offset=%zu size=%zu",
+      bitmap->biSize, bitmap->biCompression, pixelOffset, data.size()
+  );
+  return nullptr;
 }
 
 std::string MSWindowsClipboardBitmapConverter::toIClipboard(HANDLE data) const
