@@ -109,6 +109,20 @@ version_id="$(
 printf "hello=%s\n" "$version_id" | nc -U -w 1 "${TMPDIR}deskflow-core" | grep "hello=$version_id"
 ```
 
+### macOS app installation targets
+
+Use `install-macos-app` for a full standalone bundle refresh. This target runs `macdeployqt`, deploys Qt frameworks and plugins, rewrites dependency paths, signs the deployed bundle, and replaces `/Applications/Deskflow.app`.
+
+```sh
+cmake --build build/macos-release --target install-macos-app --parallel
+```
+
+Use `install-macos-app-fast` after a full standalone bundle already exists and only Deskflow code, resources, or translations changed. This target updates `Deskflow`, `deskflow-core`, `Info.plist`, and bundle resources in the installed app, rewrites the copied binaries to use the already deployed frameworks, then signs and verifies the result. It intentionally fails if the installed app is missing deployed frameworks or plugins; run `install-macos-app` in that case.
+
+```sh
+cmake --build build/macos-release --target install-macos-app-fast --parallel
+```
+
 ## Build
 
 After configuring you should be able to run make to build all targets.

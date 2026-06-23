@@ -65,7 +65,14 @@ if (OSX_BUNDLE)
     endif()
   ")
 
-  set(MACOS_APP_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/macos-app-install" CACHE PATH
+  set(_default_macos_app_install_prefix "${CMAKE_BINARY_DIR}/macos-app-install")
+  if(DEFINED ENV{TMPDIR} AND NOT "$ENV{TMPDIR}" STREQUAL "")
+    file(TO_CMAKE_PATH "$ENV{TMPDIR}" _macos_tmpdir)
+    string(REGEX REPLACE "/$" "" _macos_tmpdir "${_macos_tmpdir}")
+    set(_default_macos_app_install_prefix "${_macos_tmpdir}/${CMAKE_PROJECT_NAME}-macos-app-install")
+  endif()
+
+  set(MACOS_APP_INSTALL_PREFIX "${_default_macos_app_install_prefix}" CACHE PATH
     "Staging prefix used by the install-macos-app target.")
   set(MACOS_APP_INSTALL_DESTINATION "/Applications" CACHE PATH
     "Directory where the install-macos-app target installs the app bundle.")
@@ -78,6 +85,16 @@ if (OSX_BUNDLE)
             "${MACOS_APP_INSTALL_DESTINATION}/${CMAKE_PROJECT_PROPER_NAME}.app"
     DEPENDS ${CMAKE_PROJECT_PROPER_NAME} ${CMAKE_PROJECT_NAME}-core app_translations
     COMMENT "Installing ${CMAKE_PROJECT_PROPER_NAME}.app to ${MACOS_APP_INSTALL_DESTINATION}"
+    VERBATIM
+  )
+
+  add_custom_target(install-macos-app-fast
+    COMMAND "${MY_DIR}/fast_install_app.sh"
+            "$<TARGET_BUNDLE_DIR:${CMAKE_PROJECT_PROPER_NAME}>"
+            "${MACOS_APP_INSTALL_DESTINATION}/${CMAKE_PROJECT_PROPER_NAME}.app"
+            "${APPLE_CODESIGN_DEV}"
+    DEPENDS ${CMAKE_PROJECT_PROPER_NAME} ${CMAKE_PROJECT_NAME}-core app_translations
+    COMMENT "Fast installing ${CMAKE_PROJECT_PROPER_NAME}.app to ${MACOS_APP_INSTALL_DESTINATION}"
     VERBATIM
   )
 
