@@ -45,7 +45,7 @@ static const int16_t kProtocolMajorVersion = 1;
  * @note When incrementing the minor version, the Deskflow application version should also increment
  * @since Protocol version 1.0
  */
-static const int16_t kProtocolMinorVersion = 8;
+static const int16_t kProtocolMinorVersion = 9;
 
 /**
  * @brief Default TCP port for Deskflow connections
@@ -160,6 +160,13 @@ struct ChunkType
   inline static const auto DataStart = 1; ///< Start of transfer (contains file size)
   inline static const auto DataChunk = 2; ///< Data chunk (contains file content)
   inline static const auto DataEnd = 3;   ///< End of transfer (transfer complete)
+};
+
+enum class ClipboardTransferCancelReason : uint8_t
+{
+  Superseded = 1,
+  Timeout = 2,
+  Invalid = 3
 };
 
 /**
@@ -404,6 +411,29 @@ extern const char *const kMsgCLeave;
  * @since Protocol version 1.0
  */
 extern const char *const kMsgCClipboard;
+
+/**
+ * @brief Clipboard transfer completion acknowledgment (v1.9+)
+ *
+ * **Message Code**: `"CACK"`
+ * **Direction**: Primary ↔ Secondary
+ * **Format**: `"CACK%4i"`
+ * - `$1`: Transfer identifier
+ * @since Protocol version 1.9
+ */
+extern const char *const kMsgCClipboardAck;
+
+/**
+ * @brief Clipboard transfer cancellation (v1.9+)
+ *
+ * **Message Code**: `"CCAN"`
+ * **Direction**: Primary ↔ Secondary
+ * **Format**: `"CCAN%4i%1i"`
+ * - `$1`: Transfer identifier
+ * - `$2`: ClipboardTransferCancelReason
+ * @since Protocol version 1.9
+ */
+extern const char *const kMsgCClipboardCancel;
 
 /**
  * @brief Screensaver state change
@@ -909,6 +939,21 @@ extern const char *const kMsgDMouseWheel1_0;
  * @since Protocol version 1.0
  */
 extern const char *const kMsgDClipboard;
+
+/**
+ * @brief Transactional clipboard data transfer (v1.9+)
+ *
+ * **Message Code**: `"DCL2"`
+ * **Direction**: Primary ↔ Secondary
+ * **Format**: `"DCL2%1i%4i%4i%1i%s"`
+ * - `$1`: Clipboard identifier
+ * - `$2`: Screen sequence number
+ * - `$3`: Transfer identifier
+ * - `$4`: ChunkType
+ * - `$5`: Chunk payload
+ * @since Protocol version 1.9
+ */
+extern const char *const kMsgDClipboardTransfer;
 
 /** @} */ // end of protocol_clipboard group
 

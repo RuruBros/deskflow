@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "deskflow/ClipboardTransfer.h"
 #include "deskflow/ClipboardTypes.h"
 #include "deskflow/KeyTypes.h"
 #include "deskflow/KeyboardLayoutManager.h"
@@ -33,7 +34,7 @@ public:
   Process messages from the server on \p stream and forward to
   \p client.
   */
-  ServerProxy(Client *client, deskflow::IStream *stream, IEventQueue *events);
+  ServerProxy(Client *client, deskflow::IStream *stream, IEventQueue *events, bool transactionalClipboard);
   ServerProxy(ServerProxy const &) = delete;
   ServerProxy(ServerProxy &&) = delete;
   ~ServerProxy();
@@ -68,6 +69,17 @@ private:
 
   void resetKeepAliveAlarm();
   void setKeepAliveRate(double);
+  void extendKeepAliveForClipboardTransfer();
+  void restoreKeepAliveAfterClipboardTransfer();
+
+  void sendClipboardActions(std::vector<ClipboardTransferAction> actions);
+  void handleClipboardOutputFlushed();
+  void handleClipboardOutgoingTimeout();
+  void handleClipboardIncomingTimeout();
+  void armClipboardOutgoingTimer();
+  void clearClipboardOutgoingTimer();
+  void armClipboardIncomingTimer();
+  void clearClipboardIncomingTimer();
 
   // modifier key translation
   KeyID translateKey(KeyID) const;
@@ -81,6 +93,11 @@ private:
   void enter();
   void leave();
   void setClipboard();
+  void setClipboardTransfer();
+  void acknowledgeClipboardTransfer();
+  void cancelClipboardTransfer();
+  void sendClipboardAck(uint32_t transferId);
+  void sendClipboardCancel(uint32_t transferId, ClipboardTransferCancelReason reason);
   void grabClipboard();
   void keyDown(uint16_t id, uint16_t mask, uint16_t button, const std::string &lang);
   void keyRepeat();
@@ -120,6 +137,14 @@ private:
 
   double m_keepAliveAlarm = 0.0;
   EventQueueTimer *m_keepAliveAlarmTimer = nullptr;
+  double m_savedKeepAliveAlarm = 0.0;
+  bool m_clipboardKeepAliveExtended = false;
+
+  bool m_transactionalClipboard = false;
+  ClipboardTransferQueue m_clipboardOutgoing{0x80000000u};
+  ClipboardTransferAssembler m_clipboardIncoming;
+  EventQueueTimer *m_clipboardOutgoingTimer = nullptr;
+  EventQueueTimer *m_clipboardIncomingTimer = nullptr;
 
   MessageParser m_parser = &ServerProxy::parseHandshakeMessage;
   IEventQueue *m_events = nullptr;

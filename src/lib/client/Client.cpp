@@ -29,6 +29,7 @@
 
 #include <QMetaEnum>
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 
@@ -420,13 +421,11 @@ void Client::setupScreen()
   assert(m_server == nullptr);
 
   m_ready = false;
-  m_server = new ServerProxy(this, m_stream, m_events);
+  m_server = new ServerProxy(this, m_stream, m_events, m_serverProtocolMinor >= 9);
   m_events->addHandler(EventTypes::ScreenShapeChanged, getEventTarget(), [this](const auto &) {
     handleShapeChanged();
   });
-  m_events->addHandler(EventTypes::ScreenInfoChanged, getEventTarget(), [this](const auto &) {
-    handleInfoChanged();
-  });
+  m_events->addHandler(EventTypes::ScreenInfoChanged, getEventTarget(), [this](const auto &) { handleInfoChanged(); });
   m_events->addHandler(EventTypes::ClipboardGrabbed, getEventTarget(), [this](const auto &e) {
     handleClipboardGrabbed(e);
   });
@@ -589,15 +588,20 @@ void Client::handleClipboardGrabbed(const Event &event)
 
 void Client::handleHello()
 {
-  int16_t serverMajor;
-  int16_t serverMinor;
+  int16_t serverMajor = 0;
+  int16_t serverMinor = 0;
 
   // as luck would have it, both "Synergy" and "Barrier" are 7 chars,
   // so we eat 7 chars and then test for either protocol name.
   // we cannot re-use `readf` to check for various hello messages,
   // as `readf` eats bytes (advances the stream position reference).
   std::string protocolName;
-  ProtocolUtil::readf(m_stream, kMsgHello, &protocolName, &serverMajor, &serverMinor);
+  if (!ProtocolUtil::readf(m_stream, kMsgHello, &protocolName, &serverMajor, &serverMinor)) {
+    sendConnectionFailedEvent("failed to read server hello");
+    cleanupTimer();
+    cleanupConnection();
+    return;
+  }
 
   if (const auto proto = networkProtocolFromString(QString::fromStdString(protocolName));
       proto == NetworkProtocol::Unknown) {
@@ -608,14 +612,23 @@ void Client::handleHello()
     return;
   }
 
+  if (serverMajor != kProtocolMajorVersion || serverMinor < 0) {
+    sendConnectionFailedEvent("server protocol version is incompatible");
+    cleanupTimer();
+    cleanupConnection();
+    return;
+  }
+
+  m_serverProtocolMinor = (std::min)(serverMinor, kProtocolMinorVersion);
+
   LOG_DEBUG(
-      "saying hello back with version %s %d.%d", protocolName.c_str(), kProtocolMajorVersion, kProtocolMinorVersion
+      "saying hello back with version %s %d.%d", protocolName.c_str(), kProtocolMajorVersion, m_serverProtocolMinor
   );
 
   // dynamically build write format for hello back since `ProtocolUtil::writef`
   // doesn't support formatting fixed length strings yet.
   std::string helloBackMessage = protocolName + kMsgHelloBackArgs;
-  ProtocolUtil::writef(m_stream, helloBackMessage.c_str(), kProtocolMajorVersion, kProtocolMinorVersion, &m_name);
+  ProtocolUtil::writef(m_stream, helloBackMessage.c_str(), kProtocolMajorVersion, m_serverProtocolMinor, &m_name);
 
   // now connected but waiting to complete handshake
   setupScreen();

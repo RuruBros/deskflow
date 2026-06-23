@@ -21,7 +21,7 @@ public:
   void setClipboard(ClipboardID id, const IClipboard *clipboard) override;
   bool recvClipboard() override;
 
-private:
+protected:
   void extendHeartbeatForClipboardTransfer();
   void restoreHeartbeatAfterClipboardTransfer();
 

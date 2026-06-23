@@ -144,6 +144,8 @@ This table lists all protocol messages in alphabetical order. For a typical sequ
 |---|---|---|---|---|---|---|
 | [**CALV**](@ref kMsgCKeepAlive) | @ref kMsgCKeepAlive | Command | Both | Keep-alive | [MsgSize](#constraint-protocol-max-message-length), [KeepAlive](#constraint-keep-alive) | 1.3+ |
 | [**CBYE**](@ref kMsgCClose) | @ref kMsgCClose | Command | Server→Client | Close connection | [MsgSize](#constraint-protocol-max-message-length) | 1.0+ |
+| [**CACK**](@ref kMsgCClipboardAck) | @ref kMsgCClipboardAck | Command | Both | Acknowledge completed clipboard transfer | [MsgSize](#constraint-protocol-max-message-length) | 1.9+ |
+| [**CCAN**](@ref kMsgCClipboardCancel) | @ref kMsgCClipboardCancel | Command | Both | Cancel clipboard transfer | [MsgSize](#constraint-protocol-max-message-length) | 1.9+ |
 | [**CCLP**](@ref kMsgCClipboard) | @ref kMsgCClipboard | Command | Both | Clipboard ownership notification | [MsgSize](#constraint-protocol-max-message-length) | 1.0+ |
 | [**CIAK**](@ref kMsgCInfoAck) | @ref kMsgCInfoAck | Command | Server→Client | Acknowledge info message | [MsgSize](#constraint-protocol-max-message-length) | 1.0+ |
 | [**CINN**](@ref kMsgCEnter) | @ref kMsgCEnter | Command | Server→Client | Enter screen | [MsgSize](#constraint-protocol-max-message-length), [ScreenEntrySync](#constraint-screen-entry-sync) | 1.0+ |
@@ -151,6 +153,7 @@ This table lists all protocol messages in alphabetical order. For a typical sequ
 | [**COUT**](@ref kMsgCLeave) | @ref kMsgCLeave | Command | Server→Client | Leave screen | [MsgSize](#constraint-protocol-max-message-length) | 1.0+ |
 | [**CROP**](@ref kMsgCResetOptions) | @ref kMsgCResetOptions | Command | Server→Client | Reset options to defaults | [MsgSize](#constraint-protocol-max-message-length) | 1.0+ |
 | [**CSEC**](@ref kMsgCScreenSaver) | @ref kMsgCScreenSaver | Command | Server→Client | Screen saver control | [MsgSize](#constraint-protocol-max-message-length) | 1.0+ |
+| [**DCL2**](@ref kMsgDClipboardTransfer) | @ref kMsgDClipboardTransfer | Data | Both | Transactional clipboard data | [MsgSize](#constraint-protocol-max-message-length) | 1.9+ |
 | [**DCLP**](@ref kMsgDClipboard) | @ref kMsgDClipboard | Data | Both | Clipboard data | [MsgSize](#constraint-protocol-max-message-length) | 1.0+ |
 | [**DDRG**](@ref kMsgDDragInfo) | @ref kMsgDDragInfo | Data | Server→Client | Drag file info | [MsgSize](#constraint-protocol-max-message-length), [ListSize](#constraint-max-list) | 1.5+ |
 | [**DFTR**](@ref kMsgDFileTransfer) | @ref kMsgDFileTransfer | Data | Both | File transfer data | [MsgSize](#constraint-protocol-max-message-length) | 1.5+ |
@@ -193,6 +196,23 @@ A typical control flow is as follows:
 6.  **Input Events**: The server sends a stream of input event messages (e.g., `DMMV`, `DMDN`, `DKDN`).
 7.  **Screen Leave**: The server sends `COUT` to revoke control from the client.
 8.  **Connection Close**: The server sends `CCLOSE` to terminate the connection.
+
+### Transactional Clipboard Transfer (Protocol v1.9+)
+
+Protocol v1.9 uses `DCL2` for clipboard transfers between v1.9 peers. Each
+transfer has a unique identifier and is completed only after the receiver
+validates the assembled clipboard data and sends `CACK`.
+
+- A new clipboard value for the same clipboard identifier supersedes the active
+  transfer. The sender transmits `CCAN` for the old transfer and starts the
+  latest value.
+- A local clipboard ownership change cancels both an outgoing transfer and an
+  incoming transfer for the same clipboard identifier.
+- The receiver discards all buffered data for a cancelled, invalid, or timed-out
+  transfer.
+- A timed-out sender retries the transfer up to the implementation retry limit.
+  A transfer cancelled as superseded is not retried.
+- Protocol v1.8 and older peers continue to use `DCLP`.
 
 ## Protocol Constraints
 

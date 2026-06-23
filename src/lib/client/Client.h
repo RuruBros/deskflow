@@ -203,4 +203,5 @@ private:
   bool m_enableClipboard = true;
   size_t m_maximumClipboardSize = INT_MAX;
   size_t m_resolvedAddressesCount = 0;
+  int16_t m_serverProtocolMinor = 0;
 };
