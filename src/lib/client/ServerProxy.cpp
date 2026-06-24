@@ -380,7 +380,7 @@ bool ServerProxy::onGrabClipboard(ClipboardID id)
       const auto transferId = m_clipboardIncoming.transferId();
       m_clipboardIncoming.reset();
       clearClipboardIncomingTimer();
-      restoreKeepAliveAfterClipboardTransfer();
+      restoreKeepAliveAfterClipboardIncomingTransfer();
       sendClipboardCancel(transferId, ClipboardTransferCancelReason::Superseded);
     }
   }
@@ -390,38 +390,74 @@ bool ServerProxy::onGrabClipboard(ClipboardID id)
   return true;
 }
 
-void ServerProxy::onClipboardChanged(ClipboardID id, const IClipboard *clipboard)
+void ServerProxy::onClipboardChanged(ClipboardID id, const IClipboard *clipboard, bool force)
 {
   std::string data = IClipboard::marshall(clipboard);
+  if (data.size() <= sizeof(uint32_t)) {
+    LOG_DEBUG("skipping clipboard %d transfer because it has no supported formats", id);
+    return;
+  }
   LOG_DEBUG("sending clipboard %d seqnum=%d", id, m_seqNum);
 
   if (m_transactionalClipboard) {
-    sendClipboardActions(m_clipboardOutgoing.queue(id, m_seqNum, std::move(data)));
+    sendClipboardActions(m_clipboardOutgoing.queue(id, m_seqNum, std::move(data), force));
   } else {
+    extendKeepAliveForClipboardOutgoingTransfer();
     StreamChunker::sendClipboard(data, data.size(), id, m_seqNum, m_events, this);
   }
 }
 
-void ServerProxy::extendKeepAliveForClipboardTransfer()
+void ServerProxy::extendKeepAliveForClipboardTransfer(bool &extended)
 {
   constexpr double clipboardAlarm = kClipboardTransferInactivityTimeout + 5.0;
-  if (!m_clipboardKeepAliveExtended) {
-    m_savedKeepAliveAlarm = m_keepAliveAlarm;
-    m_clipboardKeepAliveExtended = true;
+  if (m_keepAliveAlarm <= 0.0) {
+    return;
   }
-  m_keepAliveAlarm = clipboardAlarm;
-  resetKeepAliveAlarm();
+  if (!m_clipboardIncomingKeepAliveExtended && !m_clipboardOutgoingKeepAliveExtended) {
+    m_savedKeepAliveAlarm = m_keepAliveAlarm;
+  }
+  extended = true;
+  if (m_keepAliveAlarm < clipboardAlarm) {
+    m_keepAliveAlarm = clipboardAlarm;
+    resetKeepAliveAlarm();
+  }
 }
 
-void ServerProxy::restoreKeepAliveAfterClipboardTransfer()
+void ServerProxy::restoreKeepAliveAfterClipboardTransfer(bool &extended)
 {
-  if (!m_clipboardKeepAliveExtended) {
+  if (!extended) {
+    return;
+  }
+  extended = false;
+  if (m_clipboardIncomingKeepAliveExtended || m_clipboardOutgoingKeepAliveExtended) {
+    constexpr double clipboardAlarm = kClipboardTransferInactivityTimeout + 5.0;
+    m_keepAliveAlarm = m_savedKeepAliveAlarm > clipboardAlarm ? m_savedKeepAliveAlarm : clipboardAlarm;
+    resetKeepAliveAlarm();
     return;
   }
   m_keepAliveAlarm = m_savedKeepAliveAlarm;
   m_savedKeepAliveAlarm = 0.0;
-  m_clipboardKeepAliveExtended = false;
   resetKeepAliveAlarm();
+}
+
+void ServerProxy::extendKeepAliveForClipboardIncomingTransfer()
+{
+  extendKeepAliveForClipboardTransfer(m_clipboardIncomingKeepAliveExtended);
+}
+
+void ServerProxy::restoreKeepAliveAfterClipboardIncomingTransfer()
+{
+  restoreKeepAliveAfterClipboardTransfer(m_clipboardIncomingKeepAliveExtended);
+}
+
+void ServerProxy::extendKeepAliveForClipboardOutgoingTransfer()
+{
+  extendKeepAliveForClipboardTransfer(m_clipboardOutgoingKeepAliveExtended);
+}
+
+void ServerProxy::restoreKeepAliveAfterClipboardOutgoingTransfer()
+{
+  restoreKeepAliveAfterClipboardTransfer(m_clipboardOutgoingKeepAliveExtended);
 }
 
 void ServerProxy::sendClipboardActions(std::vector<ClipboardTransferAction> actions)
@@ -437,6 +473,7 @@ void ServerProxy::sendClipboardActions(std::vector<ClipboardTransferAction> acti
       ProtocolUtil::writef(
           m_stream, kMsgDClipboardTransfer, action.clipboardId, action.sequence, action.transferId, mark, &action.data
       );
+      extendKeepAliveForClipboardOutgoingTransfer();
       if (action.type == ClipboardTransferActionType::Start) {
         LOG_DEBUG("starting clipboard transfer %u to server, size=%s", action.transferId, action.data.c_str());
       } else if (action.type == ClipboardTransferActionType::End) {
@@ -458,6 +495,7 @@ void ServerProxy::sendClipboardActions(std::vector<ClipboardTransferAction> acti
 
   if (!m_clipboardOutgoing.active()) {
     clearClipboardOutgoingTimer();
+    restoreKeepAliveAfterClipboardOutgoingTransfer();
   }
 }
 
@@ -465,6 +503,7 @@ void ServerProxy::handleClipboardOutputFlushed()
 {
   if (!m_transactionalClipboard || !m_clipboardOutgoing.active()) {
     clearClipboardOutgoingTimer();
+    restoreKeepAliveAfterClipboardOutgoingTransfer();
     return;
   }
 
@@ -493,7 +532,7 @@ void ServerProxy::handleClipboardIncomingTimeout()
   const auto transferId = m_clipboardIncoming.transferId();
   LOG_WARN("clipboard transfer %u from server timed out", transferId);
   m_clipboardIncoming.reset();
-  restoreKeepAliveAfterClipboardTransfer();
+  restoreKeepAliveAfterClipboardIncomingTransfer();
   sendClipboardCancel(transferId, ClipboardTransferCancelReason::Timeout);
 }
 
@@ -714,10 +753,12 @@ void ServerProxy::setClipboard()
 
     // forward
     Clipboard clipboard;
-    clipboard.unmarshall(dataCached, 0);
-    m_client->setClipboard(id, &clipboard);
-
-    LOG_INFO("clipboard was updated");
+    if (clipboard.unmarshall(dataCached, 0)) {
+      m_client->setClipboard(id, &clipboard);
+      LOG_INFO("clipboard was updated");
+    } else {
+      LOG_WARN("ignored invalid clipboard update from server");
+    }
   }
 }
 
@@ -741,21 +782,25 @@ void ServerProxy::setClipboardTransfer()
   switch (result.status) {
   case ClipboardTransferReceiveStatus::Started:
     LOG_DEBUG("receiving clipboard transfer %u from server, size=%s", transferId, data.c_str());
-    extendKeepAliveForClipboardTransfer();
+    extendKeepAliveForClipboardIncomingTransfer();
     armClipboardIncomingTimer();
     return;
 
   case ClipboardTransferReceiveStatus::InProgress:
-    extendKeepAliveForClipboardTransfer();
+    extendKeepAliveForClipboardIncomingTransfer();
     armClipboardIncomingTimer();
     return;
 
   case ClipboardTransferReceiveStatus::Finished: {
     clearClipboardIncomingTimer();
-    restoreKeepAliveAfterClipboardTransfer();
+    restoreKeepAliveAfterClipboardIncomingTransfer();
     try {
       Clipboard clipboard;
-      clipboard.unmarshall(m_clipboardIncoming.data(), 0);
+      if (!clipboard.unmarshall(m_clipboardIncoming.data(), 0)) {
+        m_clipboardIncoming.reset();
+        sendClipboardCancel(transferId, ClipboardTransferCancelReason::Invalid);
+        return;
+      }
       m_client->setClipboard(id, &clipboard);
     } catch (...) {
       m_clipboardIncoming.reset();
@@ -771,7 +816,7 @@ void ServerProxy::setClipboardTransfer()
   case ClipboardTransferReceiveStatus::Error:
     if (wasCurrent || !m_clipboardIncoming.active()) {
       clearClipboardIncomingTimer();
-      restoreKeepAliveAfterClipboardTransfer();
+      restoreKeepAliveAfterClipboardIncomingTransfer();
       m_clipboardIncoming.reset();
     }
     sendClipboardCancel(transferId, ClipboardTransferCancelReason::Invalid);
@@ -807,7 +852,7 @@ void ServerProxy::cancelClipboardTransfer()
     LOG_DEBUG("clipboard transfer %u from server was cancelled, reason=%u", transferId, reason);
     m_clipboardIncoming.cancel(transferId);
     clearClipboardIncomingTimer();
-    restoreKeepAliveAfterClipboardTransfer();
+    restoreKeepAliveAfterClipboardIncomingTransfer();
   }
 
   if (m_clipboardOutgoing.activeTransferId() == transferId) {
@@ -849,7 +894,7 @@ void ServerProxy::grabClipboard()
       const auto transferId = m_clipboardIncoming.transferId();
       m_clipboardIncoming.reset();
       clearClipboardIncomingTimer();
-      restoreKeepAliveAfterClipboardTransfer();
+      restoreKeepAliveAfterClipboardIncomingTransfer();
       sendClipboardCancel(transferId, ClipboardTransferCancelReason::Superseded);
     }
   }

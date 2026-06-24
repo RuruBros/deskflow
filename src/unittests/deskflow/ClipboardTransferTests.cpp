@@ -17,6 +17,7 @@ private Q_SLOTS:
   void supersedesActiveClipboard();
   void remoteOwnershipSupersedesWithoutRetry();
   void ignoresAcknowledgedDuplicate();
+  void queuesForcedAcknowledgedDuplicate();
   void ignoresAcknowledgmentBeforeEnd();
   void retriesThenDropsTimedOutTransfer();
   void replacesAndValidatesIncomingTransfer();
@@ -98,6 +99,21 @@ void ClipboardTransferTests::ignoresAcknowledgedDuplicate()
   queue.acknowledged(transferId);
 
   QVERIFY(queue.queue(kClipboardClipboard, 2, "same").empty());
+}
+
+void ClipboardTransferTests::queuesForcedAcknowledgedDuplicate()
+{
+  ClipboardTransferQueue queue;
+  auto actions = queue.queue(kClipboardClipboard, 1, "same");
+  const auto transferId = actions[0].transferId;
+  queue.outputFlushed();
+  queue.outputFlushed();
+  queue.acknowledged(transferId);
+
+  actions = queue.queue(kClipboardClipboard, 2, "same", true);
+  QCOMPARE(actions.size(), 1);
+  QCOMPARE(actions[0].type, ClipboardTransferActionType::Start);
+  QVERIFY(actions[0].transferId != transferId);
 }
 
 void ClipboardTransferTests::ignoresAcknowledgmentBeforeEnd()

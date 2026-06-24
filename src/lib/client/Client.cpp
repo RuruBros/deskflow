@@ -344,6 +344,10 @@ void Client::sendClipboard(ClipboardID id)
   if (m_timeClipboard[id] == 0 || clipboard.getTime() != m_timeClipboard[id]) {
     // marshall the data
     std::string data = clipboard.marshall();
+    if (data.size() <= sizeof(uint32_t)) {
+      LOG_DEBUG("skipping clipboard transfer because the clipboard has no supported formats");
+      return;
+    }
     if (data.size() >= m_maximumClipboardSize * 1024) {
       LOG(
           (CLOG_INFO "skipping clipboard transfer because the clipboard"
@@ -356,10 +360,11 @@ void Client::sendClipboard(ClipboardID id)
     // save new time
     m_timeClipboard[id] = clipboard.getTime();
     // save and send data if different or not yet sent
-    if (!m_sentClipboard[id] || data != m_dataClipboard[id]) {
+    const bool forceTransfer = !m_sentClipboard[id];
+    if (forceTransfer || data != m_dataClipboard[id]) {
       m_sentClipboard[id] = true;
       m_dataClipboard[id] = data;
-      m_server->onClipboardChanged(id, &clipboard);
+      m_server->onClipboardChanged(id, &clipboard, forceTransfer);
     }
   }
 }

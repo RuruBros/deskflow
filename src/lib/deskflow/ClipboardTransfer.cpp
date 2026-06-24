@@ -14,7 +14,8 @@ ClipboardTransferQueue::ClipboardTransferQueue(uint32_t transferIdMask) : m_tran
 {
 }
 
-std::vector<ClipboardTransferAction> ClipboardTransferQueue::queue(ClipboardID id, uint32_t sequence, std::string data)
+std::vector<ClipboardTransferAction>
+ClipboardTransferQueue::queue(ClipboardID id, uint32_t sequence, std::string data, bool force)
 {
   if (id >= kClipboardEnd) {
     return {};
@@ -26,7 +27,7 @@ std::vector<ClipboardTransferAction> ClipboardTransferQueue::queue(ClipboardID i
   if (m_pending[id] && m_pending[id]->data == data) {
     return {};
   }
-  if (!m_active && !m_pending[id] && m_hasAcknowledged[id] && m_lastAcknowledged[id] == data) {
+  if (!force && !m_active && !m_pending[id] && m_hasAcknowledged[id] && m_lastAcknowledged[id] == data) {
     return {};
   }
 

@@ -444,7 +444,8 @@ bool ClientProxy1_0::lastInfoChangedShape() const
 bool ClientProxy1_0::recvClipboard()
 {
   // deprecated in protocol 1.0
-  return false;
+  LOG_WARN("ignored unsupported clipboard data message from client \"%s\"", getName().c_str());
+  return true;
 }
 
 bool ClientProxy1_0::recvGrabClipboard()
@@ -459,7 +460,8 @@ bool ClientProxy1_0::recvGrabClipboard()
 
   // validate
   if (id >= kClipboardEnd) {
-    return false;
+    LOG_WARN("ignored invalid clipboard %d grab from client \"%s\"", id, getName().c_str());
+    return true;
   }
 
   // notify

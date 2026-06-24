@@ -102,9 +102,9 @@ std::string Clipboard::get(Format format) const
   return m_data[static_cast<int>(format)];
 }
 
-void Clipboard::unmarshall(const std::string &data, Time time)
+bool Clipboard::unmarshall(const std::string &data, Time time)
 {
-  IClipboard::unmarshall(this, data, time);
+  return IClipboard::unmarshall(this, data, time);
 }
 
 std::string Clipboard::marshall() const

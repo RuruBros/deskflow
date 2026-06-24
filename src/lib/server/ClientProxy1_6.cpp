@@ -39,35 +39,77 @@ void ClientProxy1_6::setClipboard(ClipboardID id, const IClipboard *clipboard)
     Clipboard::copy(&m_clipboard[id].m_clipboard, clipboard);
 
     std::string data = m_clipboard[id].m_clipboard.marshall();
+    if (data.size() <= sizeof(uint32_t)) {
+      LOG_DEBUG("skipping clipboard %d transfer to \"%s\" because it has no supported formats", id, getName().c_str());
+      return;
+    }
 
     size_t size = data.size();
     LOG_DEBUG("sending clipboard %d to \"%s\"", id, getName().c_str());
 
+    extendHeartbeatForClipboardOutgoingTransfer();
     StreamChunker::sendClipboard(data, size, id, 0, m_events, this);
   }
 }
 
-void ClientProxy1_6::extendHeartbeatForClipboardTransfer()
+void ClientProxy1_6::extendHeartbeatForClipboardTransfer(bool &extended)
 {
   const double currentAlarm = heartbeatAlarm();
-  if (currentAlarm <= 0.0 || currentAlarm >= kClipboardTransferHeartbeatAlarm) {
+  if (currentAlarm <= 0.0) {
+    return;
+  }
+  if (!m_clipboardIncomingHeartbeatExtended && !m_clipboardOutgoingHeartbeatExtended) {
+    m_savedHeartbeatAlarm = currentAlarm;
+  }
+
+  extended = true;
+  if (currentAlarm < kClipboardTransferHeartbeatAlarm) {
+    setHeartbeatAlarm(kClipboardTransferHeartbeatAlarm);
+  }
+}
+
+void ClientProxy1_6::restoreHeartbeatAfterClipboardTransfer(bool &extended)
+{
+  if (!extended) {
     return;
   }
 
-  m_savedHeartbeatAlarm = currentAlarm;
-  m_clipboardTransferHeartbeatExtended = true;
-  setHeartbeatAlarm(kClipboardTransferHeartbeatAlarm);
-}
-
-void ClientProxy1_6::restoreHeartbeatAfterClipboardTransfer()
-{
-  if (!m_clipboardTransferHeartbeatExtended) {
+  extended = false;
+  if (m_clipboardIncomingHeartbeatExtended || m_clipboardOutgoingHeartbeatExtended) {
+    const auto alarm = m_savedHeartbeatAlarm > kClipboardTransferHeartbeatAlarm ? m_savedHeartbeatAlarm
+                                                                                : kClipboardTransferHeartbeatAlarm;
+    setHeartbeatAlarm(alarm);
     return;
   }
 
   setHeartbeatAlarm(m_savedHeartbeatAlarm);
   m_savedHeartbeatAlarm = 0.0;
-  m_clipboardTransferHeartbeatExtended = false;
+}
+
+void ClientProxy1_6::extendHeartbeatForClipboardIncomingTransfer()
+{
+  extendHeartbeatForClipboardTransfer(m_clipboardIncomingHeartbeatExtended);
+}
+
+void ClientProxy1_6::restoreHeartbeatAfterClipboardIncomingTransfer()
+{
+  restoreHeartbeatAfterClipboardTransfer(m_clipboardIncomingHeartbeatExtended);
+}
+
+void ClientProxy1_6::extendHeartbeatForClipboardOutgoingTransfer()
+{
+  extendHeartbeatForClipboardTransfer(m_clipboardOutgoingHeartbeatExtended);
+}
+
+void ClientProxy1_6::restoreHeartbeatAfterClipboardOutgoingTransfer()
+{
+  restoreHeartbeatAfterClipboardTransfer(m_clipboardOutgoingHeartbeatExtended);
+}
+
+void ClientProxy1_6::handleInputProgress()
+{
+  ClientProxy1_0::handleInputProgress();
+  restoreHeartbeatAfterClipboardOutgoingTransfer();
 }
 
 bool ClientProxy1_6::recvClipboard()
@@ -79,17 +121,20 @@ bool ClientProxy1_6::recvClipboard()
 
   auto r = ClipboardChunk::assemble(getStream(), dataCached, id, seq);
   if (r == TransferState::Started) {
-    extendHeartbeatForClipboardTransfer();
+    extendHeartbeatForClipboardIncomingTransfer();
     size_t size = ClipboardChunk::getExpectedSize();
     LOG_DEBUG("receiving clipboard %d size=%d", id, size);
   } else if (r == TransferState::Finished) {
-    restoreHeartbeatAfterClipboardTransfer();
+    restoreHeartbeatAfterClipboardIncomingTransfer();
     LOG(
         (CLOG_DEBUG "received client \"%s\" clipboard %d seqnum=%d, size=%d", getName().c_str(), id, seq,
          dataCached.size())
     );
     // save clipboard
-    m_clipboard[id].m_clipboard.unmarshall(dataCached, 0);
+    if (!m_clipboard[id].m_clipboard.unmarshall(dataCached, 0)) {
+      LOG_WARN("ignored invalid clipboard update from client \"%s\"", getName().c_str());
+      return true;
+    }
     m_clipboard[id].m_sequenceNumber = seq;
 
     // notify
@@ -98,7 +143,7 @@ bool ClientProxy1_6::recvClipboard()
     info->m_sequenceNumber = seq;
     m_events->addEvent(Event(EventTypes::ClipboardChanged, getEventTarget(), info));
   } else if (r == TransferState::Error) {
-    restoreHeartbeatAfterClipboardTransfer();
+    restoreHeartbeatAfterClipboardIncomingTransfer();
   }
 
   return true;

@@ -47,7 +47,7 @@ public:
 
   void onInfoChanged();
   bool onGrabClipboard(ClipboardID);
-  void onClipboardChanged(ClipboardID, const IClipboard *);
+  void onClipboardChanged(ClipboardID, const IClipboard *, bool force = false);
 
   //@}
 
@@ -69,8 +69,12 @@ private:
 
   void resetKeepAliveAlarm();
   void setKeepAliveRate(double);
-  void extendKeepAliveForClipboardTransfer();
-  void restoreKeepAliveAfterClipboardTransfer();
+  void extendKeepAliveForClipboardTransfer(bool &extended);
+  void restoreKeepAliveAfterClipboardTransfer(bool &extended);
+  void extendKeepAliveForClipboardIncomingTransfer();
+  void restoreKeepAliveAfterClipboardIncomingTransfer();
+  void extendKeepAliveForClipboardOutgoingTransfer();
+  void restoreKeepAliveAfterClipboardOutgoingTransfer();
 
   void sendClipboardActions(std::vector<ClipboardTransferAction> actions);
   void handleClipboardOutputFlushed();
@@ -138,7 +142,8 @@ private:
   double m_keepAliveAlarm = 0.0;
   EventQueueTimer *m_keepAliveAlarmTimer = nullptr;
   double m_savedKeepAliveAlarm = 0.0;
-  bool m_clipboardKeepAliveExtended = false;
+  bool m_clipboardIncomingKeepAliveExtended = false;
+  bool m_clipboardOutgoingKeepAliveExtended = false;
 
   bool m_transactionalClipboard = false;
   ClipboardTransferQueue m_clipboardOutgoing{0x80000000u};

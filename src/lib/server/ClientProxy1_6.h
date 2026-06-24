@@ -22,11 +22,17 @@ public:
   bool recvClipboard() override;
 
 protected:
-  void extendHeartbeatForClipboardTransfer();
-  void restoreHeartbeatAfterClipboardTransfer();
+  void extendHeartbeatForClipboardTransfer(bool &extended);
+  void restoreHeartbeatAfterClipboardTransfer(bool &extended);
+  void extendHeartbeatForClipboardIncomingTransfer();
+  void restoreHeartbeatAfterClipboardIncomingTransfer();
+  void extendHeartbeatForClipboardOutgoingTransfer();
+  void restoreHeartbeatAfterClipboardOutgoingTransfer();
+  void handleInputProgress() override;
 
 private:
   IEventQueue *m_events;
-  bool m_clipboardTransferHeartbeatExtended = false;
+  bool m_clipboardIncomingHeartbeatExtended = false;
+  bool m_clipboardOutgoingHeartbeatExtended = false;
   double m_savedHeartbeatAlarm = 0.0;
 };

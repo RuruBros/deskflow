@@ -42,7 +42,12 @@ void ClientProxy1_9::setClipboard(ClipboardID id, const IClipboard *clipboard)
 
   m_clipboard[id].m_dirty = false;
   Clipboard::copy(&m_clipboard[id].m_clipboard, clipboard);
-  sendActions(m_outgoing.queue(id, 0, m_clipboard[id].m_clipboard.marshall()));
+  auto data = m_clipboard[id].m_clipboard.marshall();
+  if (data.size() <= sizeof(uint32_t)) {
+    LOG_DEBUG("skipping clipboard %u transfer to \"%s\" because it has no supported formats", id, getName().c_str());
+    return;
+  }
+  sendActions(m_outgoing.queue(id, 0, std::move(data), true));
 }
 
 void ClientProxy1_9::grabClipboard(ClipboardID id)
@@ -91,6 +96,7 @@ void ClientProxy1_9::sendActions(std::vector<ClipboardTransferAction> actions)
           getStream(), kMsgDClipboardTransfer, action.clipboardId, action.sequence, action.transferId, mark,
           &action.data
       );
+      extendOutgoingHeartbeat();
       if (action.type == ClipboardTransferActionType::Start) {
         LOG_DEBUG(
             "starting clipboard transfer %u to \"%s\", size=%s", action.transferId, getName().c_str(),
@@ -118,6 +124,7 @@ void ClientProxy1_9::sendActions(std::vector<ClipboardTransferAction> actions)
 
   if (!m_outgoing.active()) {
     clearOutgoingTimer();
+    restoreOutgoingHeartbeat();
   }
 }
 
@@ -125,6 +132,7 @@ void ClientProxy1_9::handleOutputFlushed()
 {
   if (!m_outgoing.active()) {
     clearOutgoingTimer();
+    restoreOutgoingHeartbeat();
     return;
   }
 
@@ -189,26 +197,56 @@ void ClientProxy1_9::clearIncomingTimer()
   }
 }
 
-void ClientProxy1_9::extendIncomingHeartbeat()
+void ClientProxy1_9::extendClipboardHeartbeat(bool &extended)
 {
-  if (m_incomingHeartbeatExtended) {
+  const double currentAlarm = heartbeatAlarm();
+  if (currentAlarm <= 0.0) {
+    return;
+  }
+  if (!m_incomingHeartbeatExtended && !m_outgoingHeartbeatExtended) {
+    m_savedHeartbeatAlarm = currentAlarm;
+  }
+  extended = true;
+  if (currentAlarm < kIncomingHeartbeatAlarm) {
     setHeartbeatAlarm(kIncomingHeartbeatAlarm);
+  }
+}
+
+void ClientProxy1_9::restoreClipboardHeartbeat(bool &extended)
+{
+  if (!extended) {
+    return;
+  }
+  extended = false;
+  if (m_incomingHeartbeatExtended || m_outgoingHeartbeatExtended) {
+    const auto alarm =
+        m_savedHeartbeatAlarm > kIncomingHeartbeatAlarm ? m_savedHeartbeatAlarm : kIncomingHeartbeatAlarm;
+    setHeartbeatAlarm(alarm);
     return;
   }
 
-  m_savedHeartbeatAlarm = heartbeatAlarm();
-  m_incomingHeartbeatExtended = true;
-  setHeartbeatAlarm(kIncomingHeartbeatAlarm);
+  setHeartbeatAlarm(m_savedHeartbeatAlarm);
+  m_savedHeartbeatAlarm = 0.0;
+}
+
+void ClientProxy1_9::extendIncomingHeartbeat()
+{
+  extendClipboardHeartbeat(m_incomingHeartbeatExtended);
 }
 
 void ClientProxy1_9::restoreIncomingHeartbeat()
 {
-  if (!m_incomingHeartbeatExtended) {
-    return;
-  }
-  setHeartbeatAlarm(m_savedHeartbeatAlarm);
-  m_savedHeartbeatAlarm = 0.0;
-  m_incomingHeartbeatExtended = false;
+  restoreClipboardHeartbeat(m_incomingHeartbeatExtended);
+}
+
+void ClientProxy1_9::extendOutgoingHeartbeat()
+{
+  extendClipboardHeartbeat(m_outgoingHeartbeatExtended);
+}
+
+void ClientProxy1_9::restoreOutgoingHeartbeat()
+{
+  restoreClipboardHeartbeat(m_outgoingHeartbeatExtended);
 }
 
 bool ClientProxy1_9::recvClipboardTransfer()
@@ -244,7 +282,13 @@ bool ClientProxy1_9::recvClipboardTransfer()
     clearIncomingTimer();
     restoreIncomingHeartbeat();
     try {
-      m_clipboard[id].m_clipboard.unmarshall(m_incoming.data(), 0);
+      Clipboard clipboard;
+      if (!clipboard.unmarshall(m_incoming.data(), 0)) {
+        m_incoming.reset();
+        sendClipboardCancel(transferId, ClipboardTransferCancelReason::Invalid);
+        return true;
+      }
+      Clipboard::copy(&m_clipboard[id].m_clipboard, &clipboard);
     } catch (...) {
       m_incoming.reset();
       sendClipboardCancel(transferId, ClipboardTransferCancelReason::Invalid);

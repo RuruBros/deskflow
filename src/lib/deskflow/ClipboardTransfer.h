@@ -43,7 +43,7 @@ class ClipboardTransferQueue
 public:
   explicit ClipboardTransferQueue(uint32_t transferIdMask = 0);
 
-  std::vector<ClipboardTransferAction> queue(ClipboardID id, uint32_t sequence, std::string data);
+  std::vector<ClipboardTransferAction> queue(ClipboardID id, uint32_t sequence, std::string data, bool force = false);
   std::vector<ClipboardTransferAction> outputFlushed();
   std::vector<ClipboardTransferAction> acknowledged(uint32_t transferId);
   std::vector<ClipboardTransferAction> cancelled(uint32_t transferId, ClipboardTransferCancelReason reason);

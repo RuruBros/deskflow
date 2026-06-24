@@ -27,7 +27,7 @@ public:
   Extract marshalled clipboard data and store it in this clipboard.
   Sets the clipboard time to \c time.
   */
-  void unmarshall(const std::string &data, Time time);
+  bool unmarshall(const std::string &data, Time time);
 
   //@}
   //! @name accessors

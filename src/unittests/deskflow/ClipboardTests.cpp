@@ -142,7 +142,7 @@ void ClipboardTests::unMarshalText()
   data += (char)0;
   data += (char)0;
   data += (char)0; // 0 formats added
-  clipboard.unmarshall(data, 0);
+  QVERIFY(!clipboard.unmarshall(data, 0));
   clipboard.open(0);
 
   QVERIFY(!clipboard.has(IClipboard::Format::Text));
@@ -152,12 +152,58 @@ void ClipboardTests::unMarshalText()
 void ClipboardTests::unMarshalRejectsTruncatedHeader()
 {
   Clipboard clipboard;
-  clipboard.unmarshall(std::string(3, '\0'), 0);
+  QVERIFY(!clipboard.unmarshall(std::string(3, '\0'), 0));
   clipboard.open(0);
 
   QVERIFY(!clipboard.has(IClipboard::Format::Text));
   QVERIFY(!clipboard.has(IClipboard::Format::HTML));
   QVERIFY(!clipboard.has(IClipboard::Format::Bitmap));
+  clipboard.close();
+}
+
+void ClipboardTests::unMarshalRejectsEmptyWithoutClearing()
+{
+  Clipboard clipboard;
+  QVERIFY(clipboard.open(0));
+  QVERIFY(clipboard.empty());
+  clipboard.add(IClipboard::Format::Text, kTestString1);
+  clipboard.close();
+
+  std::string data(4, '\0');
+  QVERIFY(!clipboard.unmarshall(data, 0));
+
+  QVERIFY(clipboard.open(0));
+  QCOMPARE(clipboard.get(IClipboard::Format::Text), kTestString1);
+  clipboard.close();
+}
+
+void ClipboardTests::unMarshalRejectsUnsupportedWithoutClearing()
+{
+  Clipboard clipboard;
+  QVERIFY(clipboard.open(0));
+  QVERIFY(clipboard.empty());
+  clipboard.add(IClipboard::Format::Text, kTestString1);
+  clipboard.close();
+
+  std::string data;
+  data += (char)0;
+  data += (char)0;
+  data += (char)0;
+  data += (char)1;
+  data += (char)0;
+  data += (char)0;
+  data += (char)0;
+  data += (char)IClipboard::Format::TotalFormats;
+  data += (char)0;
+  data += (char)0;
+  data += (char)0;
+  data += (char)4;
+  data += "data";
+
+  QVERIFY(!clipboard.unmarshall(data, 0));
+
+  QVERIFY(clipboard.open(0));
+  QCOMPARE(clipboard.get(IClipboard::Format::Text), kTestString1);
   clipboard.close();
 }
 
@@ -187,7 +233,7 @@ void ClipboardTests::unMarshalLongerText()
   data += (char)31; // 287 - 256 = 31
   data += text;
 
-  clipboard.unmarshall(data, 0);
+  QVERIFY(clipboard.unmarshall(data, 0));
   clipboard.open(0);
   QCOMPARE(clipboard.get(IClipboard::Format::Text), text);
   clipboard.close();
@@ -220,7 +266,7 @@ void ClipboardTests::unMarshalTextAndHtml()
   data += (char)10;
   data += kTestString2;
 
-  clipboard.unmarshall(data, 0);
+  QVERIFY(clipboard.unmarshall(data, 0));
   clipboard.open(0);
   QCOMPARE(clipboard.get(IClipboard::Format::Text), kTestString1);
   QCOMPARE(clipboard.get(IClipboard::Format::HTML), kTestString2);

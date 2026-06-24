@@ -556,7 +556,8 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
       // send the clipboard data to new active screen
       for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
         // Hackity hackity hack
-        if (m_clipboards[id].m_clipboard.marshall().size() > (m_maximumClipboardSize * 1024)) {
+        const auto dataSize = m_clipboards[id].m_clipboard.marshall().size();
+        if (dataSize <= sizeof(uint32_t) || dataSize > (m_maximumClipboardSize * 1024)) {
           continue;
         }
         m_active->setClipboard(id, &m_clipboards[id].m_clipboard);
@@ -1428,23 +1429,10 @@ void Server::handleClipboardGrabbed(const Event &event, BaseClientProxy *grabber
   clipboard.m_clipboardOwner = getName(grabber);
   clipboard.m_clipboardSeqNum = info->m_sequenceNumber;
 
-  // clear the clipboard data (since it's not known at this point)
-  if (clipboard.m_clipboard.open(0)) {
-    clipboard.m_clipboard.empty();
-    clipboard.m_clipboard.close();
-  }
-  clipboard.m_clipboardData = clipboard.m_clipboard.marshall();
-
-  // tell all other screens to take ownership of clipboard.  tell the
-  // grabber that it's clipboard isn't dirty.
-  for (auto index = m_clients.begin(); index != m_clients.end(); ++index) {
-    BaseClientProxy *client = index->second;
-    if (client == grabber) {
-      client->setClipboardDirty(info->m_id, false);
-    } else {
-      client->grabClipboard(info->m_id);
-    }
-  }
+  // The clipboard payload is not known yet. Keep the last confirmed payload
+  // in place until the owner sends data, so failed or oversized transfers do
+  // not clear other screens.
+  grabber->setClipboardDirty(info->m_id, false);
 
   if (grabber == m_primaryClient && m_active != m_primaryClient) {
     LOG_INFO("clipboard grabbed while active screen was changed, resending clipboard data");
@@ -1734,6 +1722,12 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
   clipboard.m_clipboardSeqNum = seqNum;
 
   std::string data = clipboard.m_clipboard.marshall();
+  if (data.size() <= sizeof(uint32_t)) {
+    LOG_INFO(
+        "ignored screen \"%s\" update of clipboard %d because it has no supported formats", getName(sender).c_str(), id
+    );
+    return;
+  }
   if (data.size() > m_maximumClipboardSize * 1024) {
     LOG_INFO(
         "not updating clipboard because it's over the size limit (%i KB) configured by the server",

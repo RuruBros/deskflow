@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 //! Clipboard interface
 /*!
@@ -131,7 +132,7 @@ public:
   Extract marshalled clipboard data and store it in \p clipboard.
   Sets the clipboard time to \c time.
   */
-  static void unmarshall(IClipboard *clipboard, const std::string_view &data, Time time);
+  static bool unmarshall(IClipboard *clipboard, const std::string_view &data, Time time);
 
   //! Copy clipboard
   /*!

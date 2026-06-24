@@ -30,8 +30,12 @@ private:
   void clearOutgoingTimer();
   void armIncomingTimer();
   void clearIncomingTimer();
+  void extendClipboardHeartbeat(bool &extended);
+  void restoreClipboardHeartbeat(bool &extended);
   void extendIncomingHeartbeat();
   void restoreIncomingHeartbeat();
+  void extendOutgoingHeartbeat();
+  void restoreOutgoingHeartbeat();
 
   bool recvClipboardTransfer();
   bool recvClipboardAck();
@@ -45,5 +49,6 @@ private:
   EventQueueTimer *m_outgoingTimer = nullptr;
   EventQueueTimer *m_incomingTimer = nullptr;
   bool m_incomingHeartbeatExtended = false;
+  bool m_outgoingHeartbeatExtended = false;
   double m_savedHeartbeatAlarm = 0.0;
 };
