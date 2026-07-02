@@ -1820,8 +1820,10 @@ void Server::onKeyDown(KeyID id, KeyModifierMask mask, KeyButton button, const s
 
   // relay
   if (!m_keyboardBroadcasting && IKeyState::KeyInfo::isDefault(screens)) {
+    LOG_DEBUG("routing key down to \"%s\"", getName(m_active).c_str());
     m_active->keyDown(id, mask, button, lang);
   } else {
+    LOG_DEBUG("routing key down using keyboard broadcast rules");
     if (!screens && m_keyboardBroadcasting) {
       screens = m_keyboardBroadcastingScreens.c_str();
       if (IKeyState::KeyInfo::isDefault(screens)) {
@@ -1843,8 +1845,10 @@ void Server::onKeyUp(KeyID id, KeyModifierMask mask, KeyButton button, const cha
 
   // relay
   if (!m_keyboardBroadcasting && IKeyState::KeyInfo::isDefault(screens)) {
+    LOG_DEBUG("routing key up to \"%s\"", getName(m_active).c_str());
     m_active->keyUp(id, mask, button);
   } else {
+    LOG_DEBUG("routing key up using keyboard broadcast rules");
     if (!screens && m_keyboardBroadcasting) {
       screens = m_keyboardBroadcastingScreens.c_str();
       if (IKeyState::KeyInfo::isDefault(screens)) {
@@ -1868,6 +1872,7 @@ void Server::onKeyRepeat(KeyID id, KeyModifierMask mask, int32_t count, KeyButto
   assert(m_active != nullptr);
 
   // relay
+  LOG_DEBUG("routing key repeat to \"%s\"", getName(m_active).c_str());
   m_active->keyRepeat(id, mask, count, button, lang);
 }
 
