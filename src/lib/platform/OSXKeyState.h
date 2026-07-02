@@ -12,6 +12,7 @@
 
 #include <Carbon/Carbon.h>
 
+#include <atomic>
 #include <map>
 #include <string>
 #include <vector>
@@ -29,7 +30,7 @@ public:
 
   OSXKeyState(IEventQueue *events, std::vector<std::string> layouts, bool isLangSyncEnabled);
   OSXKeyState(IEventQueue *events, deskflow::KeyMap &keyMap, std::vector<std::string> layouts, bool isLangSyncEnabled);
-  ~OSXKeyState() override = default;
+  ~OSXKeyState() override;
 
   //! @name modifiers
   //@{
@@ -135,6 +136,15 @@ private:
 
   void init();
 
+  int32_t queryActiveGroup() const;
+  void startInputSourceObserver();
+  void stopInputSourceObserver();
+  void updateActiveGroup();
+  static void inputSourceChanged(
+      CFNotificationCenterRef center, void *observer, CFNotificationName name, const void *object,
+      CFDictionaryRef userInfo
+  );
+
   // Post a key event to HID manager. It posts an event to HID client, a
   // much lower level than window manager which's the target from carbon
   // CGEventPost
@@ -165,6 +175,9 @@ private:
   mutable uint32_t m_deadKeyState;
   AutoCFArray m_groups{nullptr, CFRelease};
   GroupMap m_groupMap;
+  // Updated from the distributed TIS notification on the main thread and read from the core thread.
+  std::atomic<int32_t> m_activeGroup{0};
+  bool m_inputSourceObserverRegistered{false};
   bool m_shiftPressed;
   bool m_controlPressed;
   bool m_altPressed;

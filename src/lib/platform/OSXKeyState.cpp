@@ -226,6 +226,11 @@ OSXKeyState::OSXKeyState(
   init();
 }
 
+OSXKeyState::~OSXKeyState()
+{
+  stopInputSourceObserver();
+}
+
 void OSXKeyState::init()
 {
   m_deadKeyState = 0;
@@ -480,16 +485,18 @@ KeyModifierMask OSXKeyState::pollActiveModifiers() const
 
 int32_t OSXKeyState::pollActiveGroup() const
 {
-  std::string inputSourceIdString;
-  std::string keyboardLayoutIdString;
-  {
-    std::lock_guard<std::mutex> lock(g_tisMutex);
-    AutoTISInputSourceRef inputSource(TISCopyCurrentKeyboardInputSource(), CFRelease);
-    inputSourceIdString = inputSourceId(inputSource.get());
+  return m_activeGroup.load(std::memory_order_acquire);
+}
 
-    AutoTISInputSourceRef keyboardLayout(TISCopyCurrentKeyboardLayoutInputSource(), CFRelease);
-    keyboardLayoutIdString = inputSourceId(keyboardLayout.get());
-  }
+int32_t OSXKeyState::queryActiveGroup() const
+{
+  assert(pthread_main_np() != 0);
+
+  AutoTISInputSourceRef inputSource(TISCopyCurrentKeyboardInputSource(), CFRelease);
+  const auto inputSourceIdString = inputSourceId(inputSource.get());
+
+  AutoTISInputSourceRef keyboardLayout(TISCopyCurrentKeyboardLayoutInputSource(), CFRelease);
+  const auto keyboardLayoutIdString = inputSourceId(keyboardLayout.get());
 
   GroupMap::const_iterator i = m_groupMap.find(inputSourceIdString);
   if (i != m_groupMap.end()) {
@@ -509,6 +516,45 @@ int32_t OSXKeyState::pollActiveGroup() const
   return 0;
 }
 
+void OSXKeyState::updateActiveGroup()
+{
+  m_activeGroup.store(queryActiveGroup(), std::memory_order_release);
+}
+
+void OSXKeyState::startInputSourceObserver()
+{
+  runTISOnMainThread([this] {
+    updateActiveGroup();
+    CFNotificationCenterAddObserver(
+        CFNotificationCenterGetDistributedCenter(), this, &OSXKeyState::inputSourceChanged,
+        kTISNotifySelectedKeyboardInputSourceChanged, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately
+    );
+  });
+  m_inputSourceObserverRegistered = true;
+}
+
+void OSXKeyState::stopInputSourceObserver()
+{
+  if (!m_inputSourceObserverRegistered) {
+    return;
+  }
+
+  runTISOnMainThread([this] {
+    CFNotificationCenterRemoveObserver(
+        CFNotificationCenterGetDistributedCenter(), this, kTISNotifySelectedKeyboardInputSourceChanged, nullptr
+    );
+  });
+  m_inputSourceObserverRegistered = false;
+}
+
+void OSXKeyState::inputSourceChanged(
+    CFNotificationCenterRef, void *observer, CFNotificationName, const void *, CFDictionaryRef
+)
+{
+  auto *keyState = static_cast<OSXKeyState *>(observer);
+  runTISOnMainThread([keyState] { keyState->updateActiveGroup(); });
+}
+
 void OSXKeyState::pollPressedKeys(KeyButtonSet &pressedKeys) const
 {
   ::KeyMap km;
@@ -525,6 +571,8 @@ void OSXKeyState::pollPressedKeys(KeyButtonSet &pressedKeys) const
 
 void OSXKeyState::getKeyMap(deskflow::KeyMap &keyMap)
 {
+  stopInputSourceObserver();
+
   // update keyboard groups
   int32_t numGroups{0};
   if (getGroups(m_groups)) {
@@ -576,6 +624,8 @@ void OSXKeyState::getKeyMap(deskflow::KeyMap &keyMap)
 
     LOG_VERBOSE("no keyboard resource for group %d", g);
   }
+
+  startInputSourceObserver();
 }
 
 CGEventFlags OSXKeyState::getDeviceDependedFlags() const
@@ -956,23 +1006,17 @@ void OSXKeyState::setGroup(int32_t group)
     LOG_WARN("needed keyboard layout is null");
     return;
   }
-  CFBooleanRef canBeSetted = nullptr;
-  {
-    std::lock_guard<std::mutex> lock(g_tisMutex);
+  const auto canBeSet = runTISOnMainThread([] {
     AutoTISInputSourceRef source(TISCopyCurrentKeyboardInputSource(), CFRelease);
-    if (source)
-      canBeSetted = (CFBooleanRef)TISGetInputSourceProperty(source.get(), kTISPropertyInputSourceIsEnableCapable);
-  }
-  if (!canBeSetted) {
+    return source && TISGetInputSourceProperty(source.get(), kTISPropertyInputSourceIsEnableCapable) != nullptr;
+  });
+  if (!canBeSet) {
     LOG_WARN("needed keyboard layout is disabled for programmatically selection");
     return;
   }
 
-  {
-    std::lock_guard<std::mutex> lock(g_tisMutex);
-    if (TISSelectInputSource(keyboardLayout) != noErr) {
-      LOG_WARN("failed to set needed keyboard layout");
-    }
+  if (runTISOnMainThread([keyboardLayout] { return TISSelectInputSource(keyboardLayout); }) != noErr) {
+    LOG_WARN("failed to set needed keyboard layout");
   }
 
   LOG_VERBOSE("keyboard layout change to %d", group);
@@ -984,6 +1028,7 @@ void OSXKeyState::setGroup(int32_t group)
   // event could be applied before the keyboard layout would
   // actually be changed.
   Arch::sleep(.01);
+  runTISOnMainThread([this] { updateActiveGroup(); });
 }
 
 void OSXKeyState::adjustAltGrModifier(const KeyIDs &ids, KeyModifierMask *mask, bool isCommand) const

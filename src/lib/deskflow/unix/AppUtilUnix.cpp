@@ -154,24 +154,21 @@ std::string AppUtilUnix::getCurrentLanguageCode()
   result = X11LayoutsParser::convertLayoutToISO(m_evdev, result);
 
 #elif defined(Q_OS_MAC)
-  AutoTISInputSourceRef source(nullptr, CFRelease);
-  CFArrayRef layoutLanguages = nullptr;
-  {
-    std::lock_guard<std::mutex> lock(g_tisMutex);
-    source = AutoTISInputSourceRef(TISCopyCurrentKeyboardInputSource(), CFRelease);
-    if (source)
-      layoutLanguages = (CFArrayRef)TISGetInputSourceProperty(source.get(), kTISPropertyInputSourceLanguages);
-  }
-  char temporaryCString[128] = {0};
-  for (CFIndex index = 0; index < CFArrayGetCount(layoutLanguages) && layoutLanguages; index++) {
-    auto languageCode = (CFStringRef)CFArrayGetValueAtIndex(layoutLanguages, index);
-    if (!languageCode || !CFStringGetCString(languageCode, temporaryCString, 128, kCFStringEncodingUTF8)) {
-      continue;
+  result = runTISOnMainThread([] {
+    AutoTISInputSourceRef source(TISCopyCurrentKeyboardInputSource(), CFRelease);
+    if (!source) {
+      return std::string{};
     }
-
-    result = std::string(temporaryCString);
-    break;
-  }
+    const auto layoutLanguages = (CFArrayRef)TISGetInputSourceProperty(source.get(), kTISPropertyInputSourceLanguages);
+    char temporaryCString[128] = {0};
+    for (CFIndex index = 0; layoutLanguages && index < CFArrayGetCount(layoutLanguages); index++) {
+      auto languageCode = (CFStringRef)CFArrayGetValueAtIndex(layoutLanguages, index);
+      if (languageCode && CFStringGetCString(languageCode, temporaryCString, 128, kCFStringEncodingUTF8)) {
+        return std::string(temporaryCString);
+      }
+    }
+    return std::string{};
+  });
 #endif
   return result;
 }
